@@ -1,0 +1,63 @@
+{
+  "dataset": "quick_commerce_with_events_clean.csv",
+  "feature_cols": [
+    "day_of_week",
+    "is_weekend",
+    "month",
+    "day_of_month",
+    "week_of_year",
+    "is_holiday",
+    "lag_1",
+    "lag_7",
+    "lag_14",
+    "lag_28",
+    "roll_mean_7",
+    "roll_std_7",
+    "roll_mean_14",
+    "roll_std_14",
+    "roll_mean_28",
+    "roll_std_28",
+    "price",
+    "discount_pct",
+    "promotion_flag",
+    "is_organic_flag",
+    "shelf_life_days",
+    "weight_g",
+    "category_cat",
+    "warehouse_id_cat",
+    "product_id_cat",
+    "city_cat",
+    "event_type_1_cat"
+  ],
+  "cat_cols": [
+    "category_cat",
+    "warehouse_id_cat",
+    "product_id_cat",
+    "city_cat",
+    "event_type_1_cat"
+  ],
+  "target": "units_sold",
+  "objective": "tweedie",
+  "tweedie_variance_power": 1.1,
+  "training_rows": 319117,
+  "training_date_range": [
+    "2023-01-29",
+    "2025-12-31"
+  ],
+  "products": 300,
+  "warehouses": 6,
+  "cities": 6,
+  "stockout_rows_excluded": 605,
+  "cv_metrics": {
+    "avg_wape": 0.18,
+    "avg_mape_pct": 18.4
+  },
+  "naive_baseline_metrics": {
+    "lag7_wape": 0.322,
+    "lag7_mape_pct": 32.4,
+    "trailing_avg28_wape": 0.295,
+    "trailing_avg28_mape_pct": 30.2
+  },
+  "brd_kpi_target": "MAPE <= 15-20%",
+  "brd_kpi_status": "MEETS TARGET (daily SKU x warehouse level, no aggregation needed)"
+}
