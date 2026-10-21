@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# large sales-history dataset and local databases
+data/quick_commerce_with_events_clean.csv
+*.db
+*.sqlite3
+
+# uploaded datasets and model backups made by retraining
+data/uploads/
+app/ml/artifacts/backups/

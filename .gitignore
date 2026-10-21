@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+*.tsbuildinfo
+dashboard/next-env.d.ts
+
+# Local settings and data
+.env
+.env.local
+.env*.local
+*.db
+
+# Sales history (37 MB, kept out of git). Place it at backend/data/ before running.
+backend/data/quick_commerce_with_events_clean.csv
+
+# Uploaded datasets and model backups created by retraining
+backend/data/uploads/
+backend/app/ml/artifacts/backups/
