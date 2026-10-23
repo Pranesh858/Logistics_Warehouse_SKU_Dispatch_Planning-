@@ -65,6 +65,10 @@ export interface ForecastRequest {
 
 export interface OrderRow {
   product_id: number;
+  lead_time_days: number;
+  cover_days: number;
+  period_units: number;
+  on_order: number;
   product_name: string;
   category: string;
   warehouse_id: string;
@@ -84,6 +88,8 @@ export interface OrdersResult {
   safety_buffer: boolean;
   warehouse_id: string | null;
   history_to: string;
+  default_lead_time_days: number;
+  on_order_units: number;
   summary: { skus_to_order: number; units_to_order: number; order_now: number; order_soon: number; forecast_units: number; skus_checked: number };
   by_warehouse: { warehouse_id: string; city: string; skus: number; units: number }[];
   rows: OrderRow[];
@@ -123,3 +129,8 @@ export interface DatasetStatus {
 }
 
 export type ReportKind = 'forecast' | 'orders' | 'accuracy';
+
+export interface LeadTimes {
+  default_days: number;
+  skus: { product_id: number; lead_time_days: number; supplier: string; updated_by: string; updated_at: string | null }[];
+}

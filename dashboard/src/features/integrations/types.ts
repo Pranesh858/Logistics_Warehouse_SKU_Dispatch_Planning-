@@ -88,6 +88,8 @@ export interface PurchaseOrder {
   created_by: string;
   error: string | null;
   attempts: number;
+  received_at: string | null;
+  received_by: string | null;
   created_at: string | null;
 }
 

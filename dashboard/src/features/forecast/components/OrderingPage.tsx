@@ -13,7 +13,7 @@ import { WarehouseSwitch } from '@/features/auth/components/WarehouseSwitch';
 import { useCan, useScope } from '@/features/auth/store';
 import { useCreatePurchase } from '@/features/integrations/hooks';
 import { errorMessage } from '@/lib/api';
-import { useOrders } from '../hooks';
+import { useOrders, useSetLeadTime } from '../hooks';
 import type { OrderRow } from '../types';
 import { ReportButtons } from './ReportButtons';
 
@@ -60,7 +60,9 @@ export function OrderingPage() {
     <>
       <PageHeader
         title="Ordering"
-        lead={`Units to buy to cover the next ${days} days${safety ? ', with a safety buffer' : ''}`}
+        lead={q.data
+          ? `Enough to last the supplier's lead time plus ${days} days${safety ? ', with a safety buffer' : ''}`
+          : `Units to buy to cover the next ${days} days`}
         actions={<><WarehouseSwitch /><ReportButtons kind="orders" days={days} safety={safety} warehouse={scope ?? undefined}
           pdfLabel="Summary" xlsxLabel="Full list" /></>}
       >
@@ -94,11 +96,11 @@ export function OrderingPage() {
           <Metric label="Units to order" value={q.isLoading ? '…' : n(s?.units_to_order)} note={`across ${n(s?.skus_to_order)} lines`} />
           <Metric label="Order now" value={n(s?.order_now)} note="under 3 days of cover" tone={s && s.order_now > 0 ? 'bad' : 'neutral'} />
           <Metric label="Order soon" value={n(s?.order_soon)} note="under a week of cover" tone={s && s.order_soon > 0 ? 'warn' : 'neutral'} />
-          <Metric label={`Demand, ${days} days`} value={n(s?.forecast_units)} note={`over ${n(s?.skus_checked)} SKUs`} />
+          <Metric label="Already on order" value={n(q.data?.on_order_units)} note="not ordered again until received" />
         </MetricBand>
 
         {q.isError && <Notice>{errorMessage(q.error)}</Notice>}
-        {q.isLoading && <Notice tone="info">Working out what to order. The first run of the day can take up to a minute.</Notice>}
+        {q.isLoading && <Notice tone="info">Working out what to order…</Notice>}
 
         {can.edit && s && s.units_to_order > 0 && (
           <div className="flex flex-wrap items-center gap-3 rounded-md border border-surface-line bg-surface px-4 py-3">
@@ -145,8 +147,8 @@ export function OrderingPage() {
               <THead>
                 <tr>
                   <TH>Priority</TH><TH>Product</TH><TH>Warehouse</TH>
-                  <TH align="right">Order</TH><TH align="right">Free stock</TH>
-                  <TH align="right">Demand</TH><TH align="right">Cover</TH>
+                  <TH align="right">Order</TH><TH align="right">Free stock</TH><TH align="right">On order</TH>
+                  <TH align="right">Lead</TH><TH align="right">Demand</TH><TH align="right">Cover</TH>
                 </tr>
               </THead>
               <tbody>
@@ -161,12 +163,14 @@ export function OrderingPage() {
                     <TD className="whitespace-nowrap">{r.warehouse_id} <span className="text-ink-subtle">{r.city}</span></TD>
                     <TD align="right" strong>{n(r.units_to_order)}</TD>
                     <TD align="right">{n(r.available)}</TD>
-                    <TD align="right" muted>{n(safety ? r.forecast_high : r.forecast_units)}</TD>
+                    <TD align="right" muted>{r.on_order > 0 ? n(r.on_order) : '—'}</TD>
+                    <TD align="right" muted>{r.lead_time_days} d</TD>
+                    <TD align="right" muted title={`over ${r.cover_days} days`}>{n(safety ? r.forecast_high : r.forecast_units)}</TD>
                     <TD align="right">{r.days_of_cover === null ? '—' : `${n(r.days_of_cover, 1)} d`}</TD>
                   </TR>
                 ))}
                 {rows.length === 0 && !q.isLoading && (
-                  <Empty colSpan={7}>{search ? 'No product matches that.' : 'Nothing to order for this period. Stock covers the forecast.'}</Empty>
+                  <Empty colSpan={9}>{search ? 'No product matches that.' : 'Nothing to order for this period. Stock covers the forecast.'}</Empty>
                 )}
               </tbody>
             </Table>
@@ -182,17 +186,23 @@ export function OrderingPage() {
               <Facts rows={[
                 ['Order', <strong key="o">{n(picked.units_to_order)} units</strong>],
                 ['Priority', <Badge key="p" variant={TONE[picked.priority]}>{picked.priority}</Badge>],
-                ['Forecast demand', `${n(picked.forecast_units)} units`],
+                ['Supplier lead time', `${picked.lead_time_days} days`],
+                ['Must cover', `${picked.cover_days} days`],
+                [`Demand over ${picked.cover_days} days`, `${n(picked.forecast_units)} units`],
                 ['Busy-week demand', `${n(picked.forecast_high)} units`],
+                [`Demand over ${days} days only`, `${n(picked.period_units)} units`],
                 ['Stock on hand', n(picked.stock_on_hand)],
                 ['Held for approved orders', n(picked.reserved)],
+                ['Already on order', n(picked.on_order)],
                 ['Free to sell', n(picked.available)],
                 ['Days of cover', picked.days_of_cover === null ? '—' : `${n(picked.days_of_cover, 1)} days`],
                 ['Category', picked.category],
               ]} />
               <p className="mt-3 text-caption text-ink-muted">
-                Order = {safety ? 'busy-week demand' : 'forecast demand'} over {days} days, less free stock, never below zero.
+                Order = {safety ? 'busy-week demand' : 'demand'} over {picked.cover_days} days (lead time {picked.lead_time_days} + {days}),
+                less free stock, less what is on order. Never below zero.
               </p>
+              {can.admin && <LeadTimeEditor row={picked} fallback={q.data?.default_lead_time_days ?? 0} />}
             </SidePanel>
           )}
         </div>
@@ -202,5 +212,39 @@ export function OrderingPage() {
         </p>
       </PageBody>
     </>
+  );
+}
+
+
+/** An admin sets how long this SKU takes to arrive; everything else uses the default. */
+function LeadTimeEditor({ row, fallback }: { row: OrderRow; fallback: number }) {
+  const { save, clear } = useSetLeadTime();
+  const [days, setDays] = useState(String(row.lead_time_days));
+  const [supplier, setSupplier] = useState('');
+  const busy = save.isPending || clear.isPending;
+
+  return (
+    <form className="mt-4 space-y-2 rounded-md border border-surface-line bg-surface-muted p-3"
+      onSubmit={(e) => { e.preventDefault(); save.mutate({ product_id: row.product_id, lead_time_days: Number(days), supplier }); }}>
+      <p className="text-h4 text-ink-heading">Supplier lead time</p>
+      <p className="text-caption text-ink-muted">How many days this SKU takes to arrive after it is ordered.</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="text-label text-ink-muted">Days
+          <input type="number" min={0} max={30} value={days} onChange={(e) => setDays(e.target.value)}
+            className="mt-1 block h-comp-sm w-20 rounded-md border border-input bg-surface px-2 text-caption text-ink-heading" />
+        </label>
+        <label className="grow text-label text-ink-muted">Supplier (optional)
+          <input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Who supplies it"
+            className="mt-1 block h-comp-sm w-full rounded-md border border-input bg-surface px-2 text-caption text-ink-heading placeholder:text-ink-subtle" />
+        </label>
+        <Button type="submit" size="sm" disabled={busy}>Save</Button>
+        <Button type="button" size="sm" variant="ghost" disabled={busy}
+          onClick={() => clear.mutate(row.product_id)}>Use default ({fallback} d)</Button>
+      </div>
+      {(save.isError || clear.isError) && (
+        <p role="alert" className="text-caption text-danger-text">{errorMessage(save.error ?? clear.error)}</p>
+      )}
+      {save.isSuccess && <p role="status" className="text-caption text-success-text">Saved. The list has been recalculated.</p>}
+    </form>
   );
 }

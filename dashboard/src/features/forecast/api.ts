@@ -1,6 +1,6 @@
 import { api } from '@/lib/api';
 import { apiClient } from '@/lib/axios';
-import type { DatasetStatus, ExplainResult, ForecastRequest, ForecastResult, OrdersResult, ReportKind, SkuRow } from './types';
+import type { DatasetStatus, ExplainResult, ForecastRequest, ForecastResult, LeadTimes, OrdersResult, ReportKind, SkuRow } from './types';
 
 export const forecastApi = {
   skus: () => api.get<SkuRow[]>('/forecast/skus'),
@@ -9,6 +9,10 @@ export const forecastApi = {
     api.get<ExplainResult>('/forecast/explain', { product_id, warehouse_id, days }),
   orders: (days: number, safety: boolean, warehouse_id?: string) =>
     api.get<OrdersResult>('/forecast/orders', { days, safety, warehouse_id: warehouse_id || undefined }),
+  leadTimes: () => api.get<LeadTimes>('/forecast/lead-times'),
+  setLeadTime: (body: { product_id: number; lead_time_days: number; supplier?: string }) =>
+    api.put<{ product_id: number; lead_time_days: number }>('/forecast/lead-times', body),
+  clearLeadTime: (product_id: number) => api.delete<{ product_id: number }>(`/forecast/lead-times/${product_id}`),
   datasetStatus: () => api.get<DatasetStatus>('/forecast/dataset/status'),
   datasetCheck: (file: File) => {
     const form = new FormData();

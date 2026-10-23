@@ -24,6 +24,18 @@ export const useOrders = (days: number, safety: boolean, warehouse_id?: string, 
   });
 };
 
+export const useLeadTimes = () =>
+  useQuery({ queryKey: ['forecast', 'lead-times'], queryFn: forecastApi.leadTimes, staleTime: 60_000 });
+
+export function useSetLeadTime() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: ['forecast'] });
+  return {
+    save: useMutation({ mutationFn: forecastApi.setLeadTime, onSuccess: done }),
+    clear: useMutation({ mutationFn: forecastApi.clearLeadTime, onSuccess: done }),
+  };
+}
+
 export const useDatasetStatus = (enabled: boolean) =>
   useQuery({
     queryKey: ['forecast', 'dataset'],

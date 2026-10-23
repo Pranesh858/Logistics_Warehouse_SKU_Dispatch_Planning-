@@ -13,6 +13,7 @@ from app.core.database import Base
 from app.core import audit  # noqa: F401
 from app.integrations import models as integration_models  # noqa: F401
 from app.modules.dispatch import models as dispatch_models  # noqa: F401
+from app.modules.forecast import supply as supply_models  # noqa: F401
 from app.modules.users import models as user_models  # noqa: F401
 
 config = context.config

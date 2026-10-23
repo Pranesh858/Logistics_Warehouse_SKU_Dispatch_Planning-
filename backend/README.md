@@ -11,7 +11,18 @@ Backend for demand-based warehouse SKU dispatch planning and allocation.
 ### Prerequisites
 
 - Python 3.11+
-- PostgreSQL running locally (or use any hosted instance)
+- Node.js 18+ (for the dashboard)
+- A database. **Neither is needed for a demo**: leave `DATABASE_URL` pointing at SQLite and the service creates
+  a `demo.db` file beside itself. PostgreSQL is for real use, and the production start-up checks insist on it.
+- The sales history CSV at `data/quick_commerce_with_events_clean.csv` (not in git, ~37 MB)
+
+**Demo on a machine with no database server:**
+
+```
+DATABASE_URL=sqlite+aiosqlite:///./demo.db
+```
+
+in `.env`, then `python -m uvicorn app.main:app --port 8000`. Delete `demo.db` to start the demo data over.
 
 ### Setup
 
@@ -235,7 +246,10 @@ pytest          # uses SQLite, no PostgreSQL needed; first run builds the featur
 
 - `POST /api/v1/forecast/dataset/check` (admin, CSV or Excel upload) validates a file and previews it; `POST /forecast/dataset/apply` retrains the model on the existing history plus the upload in the background (`GET /forecast/dataset/status`). New SKUs become forecastable. The new model replaces the old one only if it is not more than 10% less accurate on the latest 28 days (or `?force=true`); the old model and dataset are backed up under `app/ml/artifacts/backups/`.
   Required columns: product_id, warehouse_id, date, units_sold, stock_on_hand, price, category, city.
-- `GET /forecast/orders?days=7|14|28&safety=true` lists units to order = forecast (upper end of the 80% range when `safety`) minus stock on hand minus stock reserved for approved orders, never below zero, most urgent first.
+- `GET /forecast/orders?days=7|14|28&safety=true` lists units to order. The cover period is the supplier's lead time **plus** the chosen period, because stock ordered today arrives days later:
+  `units = demand over (lead time + period)` (upper end of the 80% range when `safety`) `- stock free to sell - units already on order`, never below zero, most urgent first. `include_covered=true` also returns SKUs that need nothing.
+- `GET/PUT/DELETE /forecast/lead-times` sets how long a SKU takes to arrive (admin). Anything unset uses `DEFAULT_LEAD_TIME_DAYS` (3).
+- `POST /integrations/purchase-orders/{id}/receive` records a delivery, so those units stop counting as on order.
 - `GET /forecast/reports/{forecast|orders|accuracy}?format=pdf|xlsx` downloads a PDF summary or an Excel list.
 - `WARM_FORECAST_ON_STARTUP` (default true) computes the 28-day forecast in the background after start.
 
@@ -313,3 +327,31 @@ than 10% less accurate on the most recent 28 days, and the previous model and da
 - Host it with HTTPS, PostgreSQL backups and monitoring. That is server work, not code.
 - One server only: the model, the forecast cache and the retrain job live in one process. Running several copies
   behind a load balancer needs shared storage and a job queue.
+
+
+## Forecast performance and the holiday calendar
+
+**Speed.** A 28-day forecast over all 300 SKUs takes about 3 seconds, down from 44. Two changes, both proven to
+leave every predicted number identical:
+
+- `add_lag_and_rolling_features` builds its rolling windows with `groupby(...).rolling(...)` instead of
+  `transform(lambda s: s.rolling(...))`. The lambda made pandas fall back to a per-group Python loop that
+  rebuilt an index for each of the ~1,800 groups; the recursive forecast ran it once per day ahead.
+- `forecast_next_days` trims the history it carries to `LOOKBACK_DAYS` (40). The longest feature lookback is
+  29 rows, so older rows cannot change a result.
+
+**The holiday calendar** (`app/ml/calendar.py`). The forecast used to tell the model that no festival was ever
+coming, and separately left the event *type* carried over from the last row of history, so the two
+contradicted each other whenever the data ended on a festival. Both are now set from a calendar:
+
+1. `app/ml/artifacts/holiday_calendar.json`, if present — `{"events": {"2026-11-08": {"name": "Diwali", "type": "Religious"}}}`.
+   This is the only honest way to handle festivals that move with the lunar calendar.
+2. Otherwise, festivals that fell on the same day and month in every year of the sales history (Republic Day,
+   Independence Day, Christmas) are carried forward. Festivals whose date moved are never guessed.
+
+**Measured effect on this dataset: close to zero.** Worth stating plainly. `is_holiday` and `event_type_1_cat`
+are the two least-used features in the trained model (importance 4 and 2, against 2,889 for the SKU itself),
+and forcing a holiday on changes a prediction by about 0.1%. In the data, festival days average only 4% above
+ordinary days, and `promotion_flag` — which is used heavily — already absorbs most of that. The change is
+still correct, and it matters for any dataset with a real festival effect, but it does not move the accuracy
+figures here.

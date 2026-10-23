@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     default_trucks_per_warehouse: int = 3
     wave_capacity: float | None = None         # max units per warehouse per day; None = no cap
     forecast_horizon_days: int = 7
+    default_lead_time_days: int = 3            # days between ordering a SKU and it arriving, unless set per SKU
     warm_forecast_on_startup: bool = True      # precompute the 28-day forecast in the background after start
 
     # --- WMS / ERP ---

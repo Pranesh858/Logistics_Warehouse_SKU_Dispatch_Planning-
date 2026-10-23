@@ -10,7 +10,7 @@ import { Empty, Table, TableFrame, TD, TH, THead, TR } from '@/components/ui/tab
 import { PageBody, PageHeader } from '@/components/layout/PageHeader';
 import { useCan } from '@/features/auth/store';
 import { errorMessage } from '@/lib/api';
-import { useAudit, useConfirmAll, useIntegrationStatus, usePending, usePurchaseOrders, useRetryPurchase, useSync } from '../hooks';
+import { useAudit, useConfirmAll, useIntegrationStatus, usePending, usePurchaseOrders, useReceivePurchase, useRetryPurchase, useSync } from '../hooks';
 import type { Feed } from '../types';
 import { ConnectionsCard } from './ConnectionsCard';
 
@@ -23,7 +23,7 @@ const WHAT: Record<Feed['feed'], string> = {
   inventory: 'Live stock per SKU and warehouse. Every plan and order list uses it.',
   orders: 'New customer orders. Each one rebuilds the dispatch plan.',
   sales: 'Daily sales added to the history the forecast learns from.',
-  purchasing: 'Purchase orders raised from the ordering list.',
+  purchasing: 'Purchase orders raised from the ordering list, and what has arrived.',
   dispatch: 'Approved orders sent out, and what the warehouse confirms shipped.',
 };
 
@@ -38,6 +38,7 @@ export function IntegrationsPage() {
   const sync = useSync();
   const po = usePurchaseOrders();
   const retry = useRetryPurchase();
+  const receive = useReceivePurchase();
   const pending = usePending();
   const confirmAll = useConfirmAll();
   const [tab, setTab] = useState<Tab>('feeds');
@@ -159,12 +160,12 @@ export function IntegrationsPage() {
               <THead>
                 <tr>
                   <TH>Purchase order</TH><TH>Warehouse</TH><TH align="right">Units</TH>
-                  <TH align="right">Lines</TH><TH>Status</TH><TH>Created</TH><TH />
+                  <TH align="right">Lines</TH><TH>Status</TH><TH>Delivery</TH><TH>Created</TH><TH />
                 </tr>
               </THead>
               <tbody>
                 {(po.data ?? []).map((p) => (
-                  <TR key={p.id} rail={p.status === 'SENT' ? 'good' : 'bad'}>
+                  <TR key={p.id} rail={p.status !== 'SENT' ? 'bad' : p.received_at ? 'none' : 'info'}>
                     <TD mono strong>
                       {p.po_ref}
                       {p.erp_reference && <span className="block text-caption font-normal text-ink-subtle">Ref {p.erp_reference}</span>}
@@ -176,18 +177,32 @@ export function IntegrationsPage() {
                       <Badge variant={p.status === 'SENT' ? 'success' : 'danger'}>{p.status === 'SENT' ? 'Sent' : 'Not sent'}</Badge>
                       {p.error && <span className="block text-caption text-danger-text">{p.error}</span>}
                     </TD>
+                    <TD>
+                      {p.status !== 'SENT' ? <span className="text-ink-subtle">—</span>
+                        : p.received_at
+                          ? <><Badge variant="success">Received</Badge>
+                              <span className="block text-caption text-ink-subtle">{when(p.received_at)} · {p.received_by}</span></>
+                          : <Badge variant="default">On its way</Badge>}
+                    </TD>
                     <TD muted className="whitespace-nowrap">{when(p.created_at)} · {p.created_by}</TD>
                     <TD align="right">
                       {p.status === 'FAILED' && can.edit && (
                         <Button size="sm" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate(p.id)}>Send again</Button>
                       )}
+                      {p.status === 'SENT' && !p.received_at && can.edit && (
+                        <Button size="sm" variant="outline" disabled={receive.isPending} onClick={() => receive.mutate(p.id)}>Mark received</Button>
+                      )}
                     </TD>
                   </TR>
                 ))}
-                {po.data?.length === 0 && <Empty colSpan={7}>No purchase orders yet. Raise one from Ordering.</Empty>}
+                {po.data?.length === 0 && <Empty colSpan={8}>No purchase orders yet. Raise one from Ordering.</Empty>}
               </tbody>
             </Table>
-            {retry.isError && <p role="alert" className="border-t border-surface-line px-3 py-2 text-body-sm text-danger-text">{errorMessage(retry.error)}</p>}
+            {(retry.isError || receive.isError) && (
+              <p role="alert" className="border-t border-surface-line px-3 py-2 text-body-sm text-danger-text">
+                {errorMessage(retry.error ?? receive.error)}
+              </p>
+            )}
           </TableFrame>
         )}
 

@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.config import settings
+from app.ml import calendar
 from app.ml.features import build_feature_frame, add_lag_and_rolling_features
 
 def load_model(model_path=None, metadata_path=None):
@@ -14,6 +15,10 @@ def load_model(model_path=None, metadata_path=None):
     with open(metadata_path) as f:
         meta = json.load(f)
     return model, meta
+
+
+# lag_28 plus the 28-day rolling window's shift(1) reach back 29 rows; the rest is headroom.
+LOOKBACK_DAYS = 40
 
 
 class InputValidationError(ValueError):
@@ -102,7 +107,12 @@ def forecast_next_days(model, meta, days=7, path=None, product_ids=None, warehou
             raise ValueError(f"No rows found for warehouse_ids={warehouse_ids}")
 
     last_date = df["date"].max()
-    history = df.copy()
+
+    # The longest lookback any feature has is lag_28, and roll_*_28 is shift(1) over 28 days, so a new row can
+    # reach back 29 rows at most. Older rows cannot change a single number, yet the loop below rebuilds every
+    # lag and rolling average over whatever it is given, once per forecast day. Keeping only the window the
+    # features can actually see makes the result identical and the work far smaller.
+    history = df.groupby(["product_id", "warehouse_id"], as_index=False, group_keys=False).tail(LOOKBACK_DAYS).copy()
     all_forecasts = []
 
     for step in range(1, days + 1):
@@ -121,9 +131,20 @@ def forecast_next_days(model, meta, days=7, path=None, product_ids=None, warehou
         latest["month"] = target_date.month
         latest["day_of_month"] = target_date.day
         latest["week_of_year"] = int(target_date.isocalendar()[1])
-        # no future calendar/promo plan known beyond history -- a real
-        # deployment would plug in the actual upcoming promo calendar here
-        latest["is_holiday"] = 0
+
+        # What is genuinely knowable about this day. Festivals are in the calendar, so the model is told about
+        # them instead of being shown an ordinary Tuesday. Both the flag and the event type are set: leaving the
+        # type carried over from the last row of history contradicted the flag whenever the data ended on a
+        # festival. Promotions stay at zero because no future promotion plan is fed in; that remains a stated
+        # limitation rather than a guess.
+        event = calendar.lookup([target_date], history=df)[0]
+        latest["is_holiday"] = event["is_holiday"]
+        latest["event_type_1"] = event["type"]
+        if "event_type_1_cat" in latest.columns:
+            latest["event_type_1_cat"] = pd.Categorical([event["type"]] * len(latest),
+                                                        categories=df["event_type_1_cat"].cat.categories)
+        if "event_name_1" in latest.columns:
+            latest["event_name_1"] = event["name"]
         latest["promotion_flag"] = 0
         latest["discount_pct"] = 0
 

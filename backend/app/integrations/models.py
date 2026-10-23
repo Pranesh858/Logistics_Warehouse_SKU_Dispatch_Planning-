@@ -65,4 +65,7 @@ class PurchaseOrder(Base):
     created_by: Mapped[str] = mapped_column(String(60))
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=1)
+    # Until the goods arrive these units count as "on order", so the same SKU is not ordered again tomorrow.
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    received_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

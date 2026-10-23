@@ -118,23 +118,26 @@ def _xlsx(wb) -> bytes:
 
 # ------------------------------------------------------------------- order list
 ORDER_HEAD = ["Priority", "Product ID", "Product", "Category", "Warehouse", "City", "Units to order", "Available now",
-              "Days of cover", "Forecast demand", "Forecast (high end)", "On hand", "Reserved"]
+              "On order", "Days of cover", "Lead time (days)", "Cover period (days)", "Demand over cover period",
+              "Demand (high end)", "On hand", "Reserved"]
 
 
 def _order_row(x):
     return [x["priority"], x["product_id"], x["product_name"], x["category"], x["warehouse_id"], x["city"],
-            x["units_to_order"], x["available"], x["days_of_cover"], x["forecast_units"], x["forecast_high"],
-            x["stock_on_hand"], x["reserved"]]
+            x["units_to_order"], x["available"], x.get("on_order", 0), x["days_of_cover"], x.get("lead_time_days"),
+            x.get("cover_days"), x["forecast_units"], x["forecast_high"], x["stock_on_hand"], x["reserved"]]
 
 
 def orders_xlsx(res: dict) -> bytes:
     s = res["summary"]
     wb = Workbook()
     ws = _sheet(wb, "Summary", ["What", "Value"], [
-        ["Planning period (days)", res["days"]], ["Warehouse", res["warehouse_id"] or "All warehouses"],
+        ["Planning period (days)", res["days"]], ["Default supplier lead time (days)", res.get("default_lead_time_days")],
+        ["Warehouse", res["warehouse_id"] or "All warehouses"],
         ["Safety buffer", "On (upper end of the 80% forecast range)" if res["safety_buffer"] else "Off (expected demand)"],
         ["SKU-warehouse lines to order", s["skus_to_order"]], ["Total units to order", s["units_to_order"]],
-        ["Order now", s["order_now"]], ["Order soon", s["order_soon"]], ["Sales data up to", res["history_to"]],
+        ["Order now", s["order_now"]], ["Order soon", s["order_soon"]],
+        ["Units already on order", res.get("on_order_units", 0)], ["Sales data up to", res["history_to"]],
         ["Created", datetime.now().strftime("%Y-%m-%d %H:%M")],
     ], {"What": 38, "Value": 46}, first=True)
     ws.auto_filter.ref = None
@@ -153,8 +156,9 @@ def orders_pdf(res: dict) -> bytes:
         out = [_kpis([("Units to order", _fmt(s["units_to_order"])), ("SKU lines", _fmt(s["skus_to_order"])),
                       ("Order now", _fmt(s["order_now"])), ("Order soon", _fmt(s["order_soon"]))]), Spacer(1, 6)]
         out.append(Paragraph(
-            f"Units needed to cover the next <b>{res['days']} days</b> of forecast demand {buffer_txt}, after taking away stock on the shelf "
-            f"and stock already promised to approved orders. Lines that are already covered are not listed.", st["p"]))
+            f"Units needed so the shelf lasts until the next delivery: demand over the supplier's lead time plus the next "
+            f"<b>{res['days']} days</b> {buffer_txt}, less stock free to sell and less the "
+            f"{_fmt(res.get('on_order_units', 0))} units already on order. Lines that are already covered are not listed.", st["p"]))
         if res["by_warehouse"]:
             out.append(Paragraph("By warehouse", st["h"]))
             out.append(_table([["Warehouse", "City", "SKUs", "Units"]] + [[w["warehouse_id"], w["city"], w["skus"], _fmt(w["units"])] for w in res["by_warehouse"]],
@@ -162,16 +166,18 @@ def orders_pdf(res: dict) -> bytes:
         top = res["rows"][:25]
         out.append(Paragraph(f"Most urgent {len(top)} lines" if top else "Nothing to order", st["h"]))
         if top:
-            out.append(_table([["Priority", "Product", "WH", "Order", "Have", "Cover (d)"]] +
-                              [[x["priority"], (x["product_name"] or "")[:34], x["warehouse_id"], _fmt(x["units_to_order"]), _fmt(x["available"]),
+            out.append(_table([["Priority", "Product", "WH", "Order", "Have", "On order", "Lead (d)", "Cover (d)"]] +
+                              [[x["priority"], (x["product_name"] or "")[:30], x["warehouse_id"], _fmt(x["units_to_order"]),
+                                _fmt(x["available"]), _fmt(x.get("on_order", 0)), x.get("lead_time_days", "-"),
                                 "-" if x["days_of_cover"] is None else x["days_of_cover"]] for x in top],
-                              [24 * mm, 66 * mm, 16 * mm, 20 * mm, 20 * mm, 22 * mm], 3))
+                              [22 * mm, 52 * mm, 14 * mm, 18 * mm, 18 * mm, 20 * mm, 17 * mm, 19 * mm], 3))
             if len(res["rows"]) > len(top):
                 out.append(Paragraph(f"The Excel list has all {len(res['rows'])} lines.", st["sub"]))
         return out
 
     scope = res["warehouse_id"] or "All warehouses"
-    return _pdf(f"Units to order - next {res['days']} days", _stamp(f"{scope} &nbsp;|&nbsp; sales data up to {res['history_to']}"), story)
+    return _pdf(f"Units to order - next {res['days']} days",
+                _stamp(f"{scope} &nbsp;|&nbsp; lead time included &nbsp;|&nbsp; sales data up to {res['history_to']}"), story)
 
 
 # ----------------------------------------------------------------- forecast

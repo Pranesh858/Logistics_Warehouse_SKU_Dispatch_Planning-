@@ -49,17 +49,26 @@ def add_stock_features(df):
 
 
 def add_lag_and_rolling_features(df):
-    g = df.groupby(["product_id", "warehouse_id"])["units_sold"]
+    """Lags and rolling statistics per SKU x warehouse.
+
+    The rolling windows go through `groupby(...).rolling(...)` rather than `transform(lambda s: s.rolling(...))`.
+    They compute the same numbers, but the lambda form makes pandas fall back to a per-group Python loop that
+    rebuilds an index for every one of the ~1,800 groups, every time this is called. The recursive forecast calls
+    it once per day ahead, which is where nearly all of its time was going.
+    """
+    df = df.sort_values(["product_id", "warehouse_id", "date"])
+    g = df.groupby(["product_id", "warehouse_id"], sort=False)["units_sold"]
     for lag in [1, 7, 14, 28]:
         df[f"lag_{lag}"] = g.shift(lag)
+
+    shifted = g.shift(1)                       # yesterday backwards: today's sale never feeds its own average
+    grouped = shifted.groupby([df["product_id"], df["warehouse_id"]], sort=False)
     for window in [7, 14, 28]:
-        shifted = g.shift(1)
-        df[f"roll_mean_{window}"] = shifted.groupby([df["product_id"], df["warehouse_id"]]).transform(
-            lambda s: s.rolling(window, min_periods=max(3, window // 3)).mean()
-        )
-        df[f"roll_std_{window}"] = shifted.groupby([df["product_id"], df["warehouse_id"]]).transform(
-            lambda s: s.rolling(window, min_periods=max(3, window // 3)).std()
-        )
+        min_periods = max(3, window // 3)
+        stats = grouped.rolling(window, min_periods=min_periods).agg(["mean", "std"])
+        stats = stats.reset_index(level=[0, 1], drop=True)
+        df[f"roll_mean_{window}"] = stats["mean"]
+        df[f"roll_std_{window}"] = stats["std"]
     return df
 
 

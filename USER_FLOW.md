@@ -101,17 +101,22 @@ reads the list, most urgent first.
 **The rule, in words:**
 
 ```
-units to order = forecast demand over the period
-                 − stock on hand
-                 + stock already promised to approved orders
+cover period   = supplier lead time + the chosen period
+
+units to order = forecast demand over the cover period
+                 − stock free to sell (on hand, less what approved orders hold)
+                 − units already on order and not yet received
                  (never below zero)
 ```
+
+The lead time matters because stock ordered today arrives days later: the shelf has to last the wait as well
+as the period after it. Each SKU uses its own lead time, set by an admin, or the default of 3 days.
 
 With the **safety buffer** on, the forecast used is the upper end of the 80% range, so a good week does not
 empty the shelf. With it off, expected demand is used.
 
-**Urgency:**
-- **Order now** — out of stock, or under 3 days of cover
+**Urgency is measured against the delivery wait** — running out before stock can possibly arrive is the emergency:
+- **Order now** — out of stock, or less cover than the lead time
 - **Order soon** — under a week of cover
 - **Plan ahead** — everything else that still needs ordering
 
@@ -206,6 +211,9 @@ confirmations to a webhook, or a planner records them under Systems.
 |---|---|
 | **shipped** | The order is finished and leaves the plan. The hold is released **and** the stock figure drops by what went out. |
 | **cancelled** | The hold is released, stock stays where it is, and the order is dropped because it will not ship. |
+
+**Deliveries in.** When a purchase order arrives, a planner marks it received under Systems. Until then its
+units count as *on order*, so ordering does not ask for the same stock again every day while it is in transit.
 
 **Why both halves matter:** releasing the hold without lowering the stock would let the same units be
 promised to somebody else. Lowering stock without releasing the hold would subtract them twice. Both happen
@@ -333,14 +341,14 @@ purchase orders and dispatch confirmations — who, what, when, which warehouse.
 
 Stated plainly, because a capstone that overclaims is worse than one that is honest.
 
-- **Forecast accuracy is about 19% daily error.** Within the 20% target, but not perfect. Forecasts assume no
-  promotions or holidays ahead, since the future calendar is not fed in.
+- **Forecast accuracy is about 19% daily error.** Within the 20% target, but not perfect. Known festivals are
+  now fed forward, though they barely move this dataset: the model leans on the SKU and recent sales far more
+  than on the holiday flag. Future promotions are still not fed in, because no promotion plan exists.
 - **The real WMS and ERP have not been connected.** The HTTP clients are tested against mocked systems only.
   A first connection to a real system will need adjustment.
 - **It runs on one server.** The model, the forecast cache and the retrain job live in one process. Running
   several copies behind a load balancer would need shared storage and a job queue.
-- **The first ordering calculation of the day takes up to a minute** across all 300 SKUs. It is precomputed
-  in the background after start, so later loads are instant.
+- **Forecast speed:** a 28-day forecast over all 300 SKUs takes about 3 seconds.
 - **Hosting, HTTPS, backups and monitoring** are deployment work, not part of this code.
 
 ---

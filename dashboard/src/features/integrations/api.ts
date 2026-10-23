@@ -8,6 +8,7 @@ export const integrationsApi = {
   purchaseOrders: () => api.get<PurchaseOrder[]>('/integrations/purchase-orders'),
   createPurchase: (body: PurchaseRequest) => api.post<PurchaseOrder[]>('/integrations/purchase-orders', body),
   retryPurchase: (id: number) => api.post<PurchaseOrder>(`/integrations/purchase-orders/${id}/retry`),
+  receivePurchase: (id: number) => api.post<PurchaseOrder>(`/integrations/purchase-orders/${id}/receive`),
   saveSystem: (system: 'wms' | 'erp', body: SystemInput) => api.put<SystemSettings>(`/integrations/settings/${system}`, body),
   testConnection: (body: { feed: string; base_url?: string; api_key?: string | null; field_map?: Record<string, string> }) =>
     api.post<TestResult>('/integrations/settings/test', body),

@@ -15,6 +15,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.users import service as users_service
 from app.modules.users.router import router as users_router
 from app.integrations import models as _integration_models  # noqa: F401  (registers the tables)
+from app.modules.forecast import supply as _supply_models  # noqa: F401  (registers supplier_lead_times)
 from app.integrations import config_store as integration_config
 from app.integrations import service as integration_service
 from app.integrations.router import router as integrations_router

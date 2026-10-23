@@ -57,3 +57,12 @@ export function useRetryPurchase() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: integrationsApi.retryPurchase, onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations'] }) });
 }
+
+/** Receiving a delivery changes what ordering asks for, so the forecast queries are refreshed too. */
+export function useReceivePurchase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: integrationsApi.receivePurchase,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['integrations'] }); qc.invalidateQueries({ queryKey: ['forecast'] }); },
+  });
+}

@@ -359,7 +359,9 @@ async def recent_runs(db: AsyncSession, limit: int = 30) -> list[dict]:
 def po_out(po: PurchaseOrder) -> dict:
     return {"id": po.id, "po_ref": po.po_ref, "warehouse_id": po.warehouse_id, "status": po.status, "erp_reference": po.erp_reference,
             "total_units": po.total_units, "lines": po.lines, "period_days": po.period_days, "safety_buffer": bool(po.safety_buffer),
-            "created_by": po.created_by, "error": po.error, "attempts": po.attempts, "created_at": po.created_at.isoformat() if po.created_at else None}
+            "created_by": po.created_by, "error": po.error, "attempts": po.attempts,
+            "received_at": po.received_at.isoformat() if po.received_at else None, "received_by": po.received_by,
+            "created_at": po.created_at.isoformat() if po.created_at else None}
 
 
 # ------------------------------------------------------------------------------ scheduler

@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.integrations import clients, config_store, service
 from app.integrations.models import IntegrationRun, PurchaseOrder
+from app.modules.forecast import supply
 from app.modules.dispatch.schemas import OrdersIn
 from app.shared.exceptions import BadRequestError
 
@@ -114,6 +115,17 @@ async def list_po(user: CurrentUser, db: AsyncSession = Depends(get_db), warehou
     if wh:
         q = q.where(PurchaseOrder.warehouse_id == wh)
     return [service.po_out(p) for p in (await db.execute(q)).scalars().all()]
+
+
+@router.post("/purchase-orders/{po_id}/receive")
+async def receive_po(po_id: int, user: Planner, db: AsyncSession = Depends(get_db)):
+    """The goods arrived. They stop counting as on order, so ordering stops asking for them again."""
+    po = await db.get(PurchaseOrder, po_id)
+    if po is not None:
+        ensure_warehouse(user, po.warehouse_id)
+    out = await supply.receive(db, po_id, user.username)
+    await record(db, user, "purchase_order_received", f"{out.po_ref}: {out.total_units} units", out.warehouse_id)
+    return service.po_out(out)
 
 
 @router.post("/purchase-orders/{po_id}/retry")
