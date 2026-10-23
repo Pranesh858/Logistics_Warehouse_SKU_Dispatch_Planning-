@@ -48,9 +48,10 @@ async def _stock() -> pd.DataFrame:
 async def _ledger_df(db: AsyncSession) -> pd.DataFrame:
     rows = (await db.execute(select(LedgerEntry))).scalars().all()
     return pd.DataFrame(
-        [dict(order_id=r.order_id, product_id=r.product_id, warehouse_id=r.warehouse_id, qty_committed=r.qty_committed)
+        [dict(order_id=r.order_id, product_id=r.product_id, warehouse_id=r.warehouse_id, qty_committed=r.qty_committed,
+              qty_reserved=r.qty_committed if r.fulfilment == "RESERVED" else 0.0)
          for r in rows],
-        columns=["order_id", "product_id", "warehouse_id", "qty_committed"],
+        columns=["order_id", "product_id", "warehouse_id", "qty_committed", "qty_reserved"],
     )
 
 
@@ -58,7 +59,7 @@ async def _check_stock(db: AsyncSession, lines: list[PlanLine]) -> None:
     """Hard invariant: committed + about-to-send units never exceed the shelf, per SKU x warehouse."""
     stock = {(r.product_id, r.warehouse_id): r.stock_on_hand for r in (await _stock()).itertuples()}
     ledger = await _ledger_df(db)
-    used = ledger.groupby(["product_id", "warehouse_id"])["qty_committed"].sum().to_dict() if len(ledger) else {}
+    used = ledger.groupby(["product_id", "warehouse_id"])["qty_reserved"].sum().to_dict() if len(ledger) else {}
     new: dict = {}
     for ln in lines:
         new[(ln.product_id, ln.warehouse_id)] = new.get((ln.product_id, ln.warehouse_id), 0.0) + _final_qty(ln)

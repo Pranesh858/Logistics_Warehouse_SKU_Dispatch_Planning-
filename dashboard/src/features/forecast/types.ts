@@ -107,13 +107,14 @@ export interface DatasetPreview {
 
 export interface DatasetStatus {
   state: 'idle' | 'ready' | 'running' | 'done' | 'failed' | 'rejected';
+  reason?: string;
   step?: string;
   progress?: number;
   preview?: DatasetPreview | null;
   error?: string | null;
   result?: {
     promoted: boolean;
-    comparison: { wape_before: number; wape_after: number; change_pct: number; worse: boolean; holdout_days: number };
+    comparison: { wape_before: number | null; wape_after: number; change_pct: number; worse: boolean; holdout_days: number };
     left_out: number;
     products?: number;
     history_to?: string;

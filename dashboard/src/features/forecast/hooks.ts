@@ -38,6 +38,7 @@ export function useDatasetActions() {
   return {
     check: useMutation({ mutationFn: forecastApi.datasetCheck, onSuccess: put }),
     apply: useMutation({ mutationFn: forecastApi.datasetApply, onSuccess: put }),
+    retrain: useMutation({ mutationFn: forecastApi.datasetRetrain, onSuccess: put }),
     discard: useMutation({ mutationFn: forecastApi.datasetDiscard, onSuccess: put }),
     // after a retrain every forecast-based number is stale
     refreshAll: () => qc.invalidateQueries({ queryKey: ['forecast'] }),

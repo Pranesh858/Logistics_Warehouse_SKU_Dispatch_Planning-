@@ -6,6 +6,7 @@ export const api = {
   get: <T,>(url: string, params?: object) => apiClient.get<T>(`/api/v1${url}`, { params }).then((r) => r.data),
   post: <T,>(url: string, body?: object) => apiClient.post<T>(`/api/v1${url}`, body).then((r) => r.data),
   patch: <T,>(url: string, body?: object) => apiClient.patch<T>(`/api/v1${url}`, body).then((r) => r.data),
+  put: <T,>(url: string, body?: object) => apiClient.put<T>(`/api/v1${url}`, body).then((r) => r.data),
   delete: <T,>(url: string) => apiClient.delete<T>(`/api/v1${url}`).then((r) => r.data),
 };
 

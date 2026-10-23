@@ -9,19 +9,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.integrations import clients
+from app.integrations import clients, config_store
 from app.integrations.models import IntegrationRun, PurchaseOrder, StockLevel
 from app.ml import train
 from app.modules.dispatch import service as dispatch_service
 from app.modules.dispatch.engine import TIER_RANK
-from app.modules.dispatch.models import Order
+from app.modules.dispatch.models import LedgerEntry, Order
 from app.modules.dispatch.schemas import OrderIn
 from app.modules.forecast import dataset as dataset_service
 from app.modules.forecast import orders as order_needs
 from app.modules.forecast.runtime import runtime
 from app.shared.exceptions import BadRequestError, NotFoundError
 
-FEEDS = ("inventory", "orders", "sales", "purchasing")
+FEEDS = ("inventory", "orders", "sales", "purchasing", "dispatch")
 
 
 async def _log(db: AsyncSession, feed: str, mode: str, status: str, rows: int, message: str) -> IntegrationRun:
@@ -157,6 +157,83 @@ async def sync_sales(db: AsyncSession) -> IntegrationRun:
     return await _log(db, "sales", mode, "OK", n, msg)
 
 
+# ------------------------------------------------------------------------------ dispatch confirmations
+CLOSED = {"shipped": "SHIPPED", "cancelled": "CANCELLED"}
+
+
+async def pending_confirmations(db: AsyncSession, warehouse_id: str | None) -> list[dict]:
+    """Approved orders the WMS has not yet confirmed. Their stock is still held back."""
+    q = select(LedgerEntry).where(LedgerEntry.fulfilment == "RESERVED").order_by(LedgerEntry.committed_at)
+    if warehouse_id:
+        q = q.where(LedgerEntry.warehouse_id == warehouse_id)
+    rows = (await db.execute(q.limit(500))).scalars().all()
+    return [{"order_id": r.order_id, "product_id": r.product_id, "warehouse_id": r.warehouse_id,
+             "qty": r.qty_committed, "wms_status": r.wms_status,
+             "committed_at": r.committed_at.isoformat() if r.committed_at else None} for r in rows]
+
+
+async def _ship_out(db: AsyncSession, taken: dict[tuple[int, str], float]) -> None:
+    """Goods that have left the building are no longer on the shelf. Our stock view is physical stock, so it drops
+    by what shipped. Where a WMS feed is connected its next report overwrites this with the authoritative figure."""
+    if not taken:
+        return
+    current = {(int(r.product_id), r.warehouse_id): float(r.stock_on_hand) for r in (await dispatch_service._stock()).itertuples()}
+    existing = {(r.product_id, r.warehouse_id): r for r in (await db.execute(select(StockLevel))).scalars().all()}
+    live = dict(runtime._live_stock)
+    for key, qty in taken.items():
+        left = max(0.0, current.get(key, 0.0) - qty)
+        row = existing.get(key)
+        if row is None:
+            db.add(StockLevel(product_id=key[0], warehouse_id=key[1], qty=left, source="dispatch", updated_at=datetime.now()))
+        else:
+            row.qty, row.source, row.updated_at = left, "dispatch", datetime.now()
+        live[key] = left
+    await db.commit()
+    runtime.set_live_stock(live)
+
+
+async def confirm_dispatch(db: AsyncSession, items: list[dict], source: str, warehouse_id: str | None = None) -> dict:
+    """The WMS tells us what really happened to approved orders.
+
+    shipped   - the goods have left. The order is finished, so it leaves the plan, the reservation is released and
+                the stock figure drops by what went out. Releasing the reservation without lowering the stock would
+                let the same units be promised to somebody else.
+    cancelled - the goods never left. The reservation is released and the stock stays where it is; the order is
+                dropped, because it will not ship.
+    """
+    shipped = cancelled = skipped = 0
+    freed = 0.0
+    taken: dict[tuple[int, str], float] = {}
+    for it in items:
+        oid = str(it.get("order_id") or "").strip()
+        state = CLOSED.get(str(it.get("status") or "shipped").strip().lower())
+        row = await db.get(LedgerEntry, oid) if oid else None
+        if row is None or state is None or row.fulfilment != "RESERVED" or (warehouse_id and row.warehouse_id != warehouse_id):
+            skipped += 1
+            continue
+        row.fulfilment = state
+        row.closed_at = datetime.now()
+        freed += float(row.qty_committed)
+        if state == "SHIPPED":
+            shipped += 1
+            key = (int(row.product_id), row.warehouse_id)
+            taken[key] = taken.get(key, 0.0) + float(row.qty_committed)
+        else:
+            cancelled += 1
+        order = await db.get(Order, oid)      # finished or cancelled: either way it is no longer an open order
+        if order is not None:
+            await db.delete(order)
+    await db.commit()
+    await _ship_out(db, taken)
+    if shipped or cancelled:
+        await dispatch_service.recommend_plan(db, trigger="dispatch_confirmed")
+    msg = f"{shipped} shipped, {cancelled} cancelled, {round(freed):g} units released from reservation"
+    if skipped:
+        msg += f", {skipped} skipped (unknown order or already confirmed)"
+    await _log(db, "dispatch", source, "OK", shipped + cancelled, msg)
+    return {"shipped": shipped, "cancelled": cancelled, "skipped": skipped, "units_released": round(freed, 2), "message": msg}
+
+
 # ------------------------------------------------------------------------------ purchase orders
 def _po_payload(po: PurchaseOrder) -> dict:
     return {"po_ref": po.po_ref, "warehouse_id": po.warehouse_id, "lines": po.lines, "total_units": po.total_units}
@@ -206,14 +283,44 @@ async def retry_purchase_order(db: AsyncSession, po_id: int) -> PurchaseOrder:
     return await _send_po(db, po)
 
 
+# ------------------------------------------------------------------------------ scheduled retraining
+async def _last_retrain(db: AsyncSession):
+    return (await db.execute(select(IntegrationRun).where(IntegrationRun.feed == "retrain", IntegrationRun.status == "OK")
+                             .order_by(IntegrationRun.id.desc()).limit(1))).scalar_one_or_none()
+
+
+async def maybe_retrain(db: AsyncSession, session_factory) -> IntegrationRun | None:
+    """Retrain on the grown sales history every RETRAIN_EVERY_DAYS days. The new model replaces the current one
+    only if it is not clearly less accurate on the most recent weeks."""
+    days = settings.retrain_every_days
+    if days <= 0 or dataset_service.status()["state"] == "running":
+        return None
+    last = await _last_retrain(db)
+    if last is not None and (datetime.now() - last.started_at).days < days:
+        return None
+    loop = asyncio.get_running_loop()
+
+    def done(result):
+        async def after():
+            async with session_factory() as s2:
+                c = result.get("comparison", {})
+                await _log(s2, "retrain", "scheduled", "OK", result.get("training_rows", 0),
+                           f"Retrained on history to {result.get('history_to')}: error {c.get('wape_before')} -> {c.get('wape_after')}")
+                await dispatch_service.recommend_plan(s2, trigger="retrained")
+        asyncio.run_coroutine_threadsafe(after(), loop)
+
+    await asyncio.to_thread(dataset_service.start_retrain, done, "scheduled")
+    return await _log(db, "retrain", "scheduled", "OK", 0, "Scheduled retrain started")
+
+
 # ------------------------------------------------------------------------------ status
-INTERVALS = {"inventory": "inventory_sync_minutes", "orders": "order_sync_minutes", "sales": "sales_sync_minutes"}
+PULLED = ("inventory", "orders", "sales")
 
 
 async def status(db: AsyncSession) -> dict:
     feeds = []
     labels = {"inventory": ("Stock levels", "WMS"), "orders": ("Customer orders", "ERP"), "sales": ("Sales history", "ERP"),
-              "purchasing": ("Purchase orders", "ERP")}
+              "purchasing": ("Purchase orders", "ERP"), "dispatch": ("Dispatch orders", "WMS")}
     for feed in FEEDS:
         last = (await db.execute(select(IntegrationRun).where(IntegrationRun.feed == feed).order_by(IntegrationRun.id.desc()).limit(1))).scalar_one_or_none()
         ok = (await db.execute(select(IntegrationRun).where(IntegrationRun.feed == feed, IntegrationRun.status == "OK")
@@ -221,15 +328,27 @@ async def status(db: AsyncSession) -> dict:
         mode = clients.mode(feed)
         feeds.append({
             "feed": feed, "label": labels[feed][0], "system": labels[feed][1], "mode": mode,
-            "auto_minutes": getattr(settings, INTERVALS[feed], 0) if feed in INTERVALS else None,
+            "auto_minutes": config_store.sync_minutes(feed) if feed in PULLED else None,
             "last": None if last is None else {"status": last.status, "rows": last.rows, "message": last.message, "at": last.started_at.isoformat()},
             "last_ok_at": None if ok is None else ok.started_at.isoformat(),
         })
-    dispatch_mode = "live" if settings.wms_base_url else "simulator"
+    dispatch_mode = clients.mode("dispatch")
     return {
         "feeds": feeds, "dispatch_export": {"system": "WMS", "mode": dispatch_mode},
         "live_stock_skus": runtime.live_stock_count(), "webhooks_enabled": bool(settings.integration_webhook_key),
+        "systems": {s: _system_view(s) for s in config_store.SYSTEMS},
+        "awaiting_confirmation": (await db.execute(
+            select(func.count()).select_from(LedgerEntry).where(LedgerEntry.fulfilment == "RESERVED"))).scalar_one(),
     }
+
+
+def _system_view(system: str) -> dict:
+    """What the admin may see. The key itself is never sent back, only whether one is set."""
+    c = config_store.get(system)
+    return {"system": system, "base_url": c["base_url"], "enabled": c["enabled"], "has_key": bool(c["api_key"]),
+            "field_map": c.get("field_map") or {}, "sync_minutes": c.get("sync_minutes") or {},
+            "source": c.get("source", "env"), "updated_by": c.get("updated_by"), "updated_at": c.get("updated_at"),
+            "feeds": list(config_store.FEEDS_OF[system])}
 
 
 async def recent_runs(db: AsyncSession, limit: int = 30) -> list[dict]:
@@ -252,8 +371,8 @@ async def scheduler(session_factory) -> None:
     runners = {"inventory": sync_inventory, "orders": sync_orders, "sales": sync_sales}
     while True:
         now = loop.time()
-        for feed, attr in INTERVALS.items():
-            minutes = getattr(settings, attr)
+        for feed in PULLED:
+            minutes = config_store.sync_minutes(feed)
             if minutes > 0 and now - last.get(feed, now - minutes * 60 - 1) >= minutes * 60:
                 last[feed] = now
                 try:
@@ -261,4 +380,9 @@ async def scheduler(session_factory) -> None:
                         await runners[feed](db)
                 except Exception:
                     pass
+        try:
+            async with session_factory() as db:
+                await maybe_retrain(db, session_factory)
+        except Exception:
+            pass
         await asyncio.sleep(tick)

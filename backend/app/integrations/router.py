@@ -7,10 +7,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import Admin, CurrentUser, Planner, ensure_warehouse, pick_warehouse
+from app.core.audit import recent, record
+from app.core.auth import Admin, CurrentUser, Planner, ensure_warehouse, pick_warehouse, scope
 from app.core.config import settings
 from app.core.database import get_db
-from app.integrations import service
+from app.integrations import clients, config_store, service
 from app.integrations.models import IntegrationRun, PurchaseOrder
 from app.modules.dispatch.schemas import OrdersIn
 from app.shared.exceptions import BadRequestError
@@ -30,6 +31,64 @@ async def sync_now(feed: Literal["inventory", "orders", "sales"], admin: Admin, 
     return {"feed": run.feed, "status": run.status, "rows": run.rows, "message": run.message}
 
 
+# ---- connections an admin configures ---------------------------------------------------------------------------------
+class SystemIn(BaseModel):
+    base_url: str = ""
+    api_key: str | None = None          # leave out to keep the stored key
+    enabled: bool = False
+    field_map: dict[str, dict[str, str]] = {}
+    sync_minutes: dict[str, int] = {}
+
+
+@router.get("/settings")
+async def read_settings(admin: Admin, db: AsyncSession = Depends(get_db)):
+    return {s: service._system_view(s) for s in config_store.SYSTEMS}
+
+
+@router.put("/settings/{system}")
+async def write_settings(system: Literal["wms", "erp"], body: SystemIn, admin: Admin, db: AsyncSession = Depends(get_db)):
+    """Point the planner at a different WMS or ERP without changing any code."""
+    if body.enabled and not body.base_url.strip():
+        raise BadRequestError("Enter the system's address before switching it on")
+    if body.base_url and not body.base_url.strip().lower().startswith(("http://", "https://")):
+        raise BadRequestError("The address must start with http:// or https://")
+    allowed = set(config_store.FEEDS_OF[system])
+    for key in list(body.field_map) + list(body.sync_minutes):
+        if key not in allowed:
+            raise BadRequestError(f"{key} is not a feed of the {system.upper()}. Use one of: {', '.join(sorted(allowed))}")
+    for feed, minutes in body.sync_minutes.items():
+        if minutes < 0 or minutes > 10080:
+            raise BadRequestError("Automatic sync must be between 0 (off) and 10080 minutes (a week)")
+    await config_store.save(db, system, base_url=body.base_url, api_key=body.api_key, enabled=body.enabled,
+                            field_map=body.field_map, sync_minutes=body.sync_minutes, user=admin.username)
+    await service._log(db, "inventory" if system == "wms" else "orders", "live" if body.enabled else "simulator", "OK", 0,
+                       f"{admin.username} {'connected' if body.enabled else 'disconnected'} the {system.upper()}"
+                       + (f" at {body.base_url}" if body.enabled else ""))
+    await record(db, admin, "connection_changed",
+                 f"{system.upper()} {'connected to ' + body.base_url if body.enabled else 'switched back to the simulator'}")
+    return service._system_view(system)
+
+
+class TestIn(BaseModel):
+    feed: Literal["inventory", "orders", "sales"]
+    base_url: str | None = None         # leave out to test what is stored
+    api_key: str | None = None
+    field_map: dict[str, str] = {}
+
+
+@router.post("/settings/test")
+async def test_connection(body: TestIn, admin: Admin):
+    """Call the system once and report what came back. Nothing is saved and no data is taken in."""
+    system = config_store.SYSTEM_OF[body.feed]
+    saved = config_store.get(system)
+    base = (body.base_url if body.base_url is not None else saved["base_url"]).strip().rstrip("/")
+    if not base:
+        raise BadRequestError("Enter the system's address first")
+    key = body.api_key if body.api_key is not None else saved["api_key"]
+    mapping = body.field_map or (saved.get("field_map") or {}).get(body.feed, {})
+    return await clients.probe(body.feed, base, key, mapping)
+
+
 # ---- purchase orders (raised from Units to order) --------------------------------------------------------------------
 class PurchaseIn(BaseModel):
     days: Literal[7, 14, 28] = 7
@@ -43,6 +102,8 @@ async def create_po(body: PurchaseIn, user: Planner, db: AsyncSession = Depends(
     """Turn the Units to order list into one purchase order per warehouse and send it to the ERP."""
     wh = pick_warehouse(user, body.warehouse_id)
     pos = await service.create_purchase_orders(db, body.days, body.safety, wh, body.urgent_only, user.username)
+    await record(db, user, "purchase_orders_created",
+                 f"{len(pos)} order(s), {sum(p.total_units for p in pos)} units, {body.days}-day cover", wh)
     return [service.po_out(p) for p in pos]
 
 
@@ -61,6 +122,42 @@ async def retry_po(po_id: int, user: Planner, db: AsyncSession = Depends(get_db)
     if po is not None:
         ensure_warehouse(user, po.warehouse_id)
     return service.po_out(await service.retry_purchase_order(db, po_id))
+
+
+# ---- dispatch confirmations: what really happened to approved orders -------------------------------------------------
+class ConfirmItem(BaseModel):
+    order_id: str
+    status: Literal["shipped", "cancelled"] = "shipped"
+
+
+class ConfirmIn(BaseModel):
+    items: list[ConfirmItem]
+
+
+@router.get("/confirmations/pending")
+async def pending(user: CurrentUser, db: AsyncSession = Depends(get_db), warehouse_id: str | None = None):
+    rows = await service.pending_confirmations(db, pick_warehouse(user, warehouse_id))
+    return {"count": len(rows), "orders": rows}
+
+
+@router.post("/confirmations")
+async def confirm(body: ConfirmIn, user: Planner, db: AsyncSession = Depends(get_db)):
+    """Record what happened to approved orders, for a WMS that cannot push confirmations itself."""
+    out = await service.confirm_dispatch(db, [i.model_dump() for i in body.items], "manual", scope(user))
+    await record(db, user, "dispatch_confirmed", out["message"], scope(user))
+    return out
+
+
+@router.post("/confirmations/all")
+async def confirm_all(user: Planner, db: AsyncSession = Depends(get_db), warehouse_id: str | None = None):
+    """Mark everything still waiting as shipped."""
+    wh = pick_warehouse(user, warehouse_id)
+    rows = await service.pending_confirmations(db, wh)
+    if not rows:
+        raise BadRequestError("Nothing is waiting for confirmation")
+    out = await service.confirm_dispatch(db, [{"order_id": r["order_id"], "status": "shipped"} for r in rows], "manual", wh)
+    await record(db, user, "dispatch_confirmed", out["message"], wh)
+    return out
 
 
 # ---- webhooks: the WMS / ERP pushes to us instead of us polling -------------------------------------------------------
@@ -84,6 +181,13 @@ async def webhook_inventory(body: StockIn, db: AsyncSession = Depends(get_db), x
     return {"applied": applied, "changed": changed, "skipped": skipped}
 
 
+@router.post("/webhooks/dispatch-confirmations")
+async def webhook_confirmations(body: ConfirmIn, db: AsyncSession = Depends(get_db), x_integration_key: str | None = Header(None)):
+    """WMS reports what shipped: {"items": [{"order_id": "O-1", "status": "shipped"}]}"""
+    _check_key(x_integration_key)
+    return await service.confirm_dispatch(db, [i.model_dump() for i in body.items], "webhook")
+
+
 @router.post("/webhooks/orders")
 async def webhook_orders(body: OrdersIn, db: AsyncSession = Depends(get_db), x_integration_key: str | None = Header(None)):
     """ERP pushes new customer orders (same body as POST /dispatch/orders). Known or invalid orders are skipped."""
@@ -91,3 +195,10 @@ async def webhook_orders(body: OrdersIn, db: AsyncSession = Depends(get_db), x_i
     added, skipped = await service.add_erp_orders(db, [o.model_dump(mode="json") for o in body.orders])
     await service._log(db, "orders", "webhook", "OK", added, f"{added} orders pushed, {skipped} skipped")
     return {"added": added, "skipped": skipped}
+
+
+@router.get("/audit")
+async def audit(admin: Admin, db: AsyncSession = Depends(get_db), limit: int = Query(100, ge=1, le=500),
+                action: str | None = None):
+    """Who approved, changed or connected what."""
+    return await recent(db, limit, action)

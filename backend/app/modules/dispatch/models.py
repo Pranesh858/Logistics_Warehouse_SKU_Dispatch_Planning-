@@ -122,6 +122,10 @@ class LedgerEntry(Base):
     customer_tier: Mapped[str] = mapped_column(String(20))
     committed_decision: Mapped[str] = mapped_column(String(12))
     wms_status: Mapped[str] = mapped_column(String(10), default="FAILED")   # SENT | FAILED (stock stays reserved either way)
+    # RESERVED while the goods are still on the shelf; SHIPPED or CANCELLED once the WMS says what happened.
+    # Only RESERVED rows hold stock back, so a shipment is never counted twice.
+    fulfilment: Mapped[str] = mapped_column(String(10), default="RESERVED", index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     plan_id: Mapped[int] = mapped_column(Integer)
     committed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

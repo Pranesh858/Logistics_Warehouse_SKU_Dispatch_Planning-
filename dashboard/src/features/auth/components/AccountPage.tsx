@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { PageBody, PageHeader } from '@/components/layout/PageHeader';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
 import { authApi } from '../api';
@@ -21,6 +20,7 @@ export function AccountPage() {
   const [done, setDone] = useState(false);
 
   if (!user) return null;
+  const mustChange = !!user.must_change_password;
   const tooShort = next.length > 0 && next.length < 8;
   const mismatch = again.length > 0 && again !== next;
   const ready = current && next.length >= 8 && again === next && next !== current;
@@ -43,21 +43,22 @@ export function AccountPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl space-y-6 px-6 py-8">
-      <header>
-        <h1 className="text-[1.5rem] font-semibold tracking-tight text-ink-heading">Your account</h1>
-        <p className="mt-1 text-body-sm text-ink-muted">
-          {user.name} &middot; {user.username} &middot; <Badge variant="secondary">{ROLE_LABEL[user.role]}</Badge>
-          {user.warehouse_id && <> &middot; {user.warehouse_id}</>}
-        </p>
-      </header>
+    <>
+      <PageHeader title="Your account" lead={`${user.name} · ${user.username} · ${ROLE_LABEL[user.role]}${user.warehouse_id ? ` · ${user.warehouse_id}` : ''}`} />
+      <PageBody className="max-w-lg space-y-4">
+        {mustChange && (
+          <p role="alert" className="rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-body-sm text-warning-text">
+            This password was set by someone else. Choose your own to start using the planner.
+          </p>
+        )}
 
-      <Card>
-        <CardContent className="pt-6">
-          <h2 className="text-[1.0625rem] font-semibold text-ink-heading">Change password</h2>
-          <p className="mt-1 text-body-sm text-ink-muted">Use at least 8 characters. Changing it signs you out of your other devices.</p>
+        <div className="rounded-md border border-surface-line bg-surface">
+          <header className="border-b border-surface-line px-4 py-2.5">
+            <h2 className="text-h3 text-ink-heading">Change password</h2>
+            <p className="text-caption text-ink-muted">At least 8 characters. Changing it ends your other sign-ins.</p>
+          </header>
 
-          <form onSubmit={submit} className="mt-5 space-y-4">
+          <form onSubmit={submit} className="space-y-3 p-4">
             <label className="block text-label text-ink-muted">Current password
               <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required className="mt-1" />
             </label>
@@ -71,10 +72,10 @@ export function AccountPage() {
             </label>
             {error && <p role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-body-sm text-danger-text">{error}</p>}
             {done && <p role="status" className="rounded-md border border-success-border bg-success-soft px-3 py-2 text-body-sm text-success-text">Password changed. Your other sign-ins have ended.</p>}
-            <Button type="submit" disabled={busy || !ready}>{busy ? 'Saving…' : 'Change password'}</Button>
+            <Button type="submit" size="sm" disabled={busy || !ready}>{busy ? 'Saving…' : 'Change password'}</Button>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </PageBody>
+    </>
   );
 }

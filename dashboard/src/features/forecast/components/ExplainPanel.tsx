@@ -1,74 +1,85 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SidePanel } from '@/components/ui/panel';
 import { errorMessage } from '@/lib/api';
 import { useExplain } from '../hooks';
 
-export function ExplainPanel({ product_id, warehouse_id, days }: { product_id: number; warehouse_id: string; days: number }) {
+const n = (v: number | null | undefined, d = 0) =>
+  v === null || v === undefined ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: d });
+
+/** Why this SKU is forecast the way it is: recent sales against the forecast, and what moved it. */
+export function ExplainPanel({ product_id, warehouse_id, days, onClose }: {
+  product_id: number; warehouse_id: string; days: number; onClose: () => void;
+}) {
   const q = useExplain(product_id, warehouse_id, days);
-
-  if (q.isLoading) return <Card><CardContent className="py-8 text-ink-muted">Working out what drives SKU #{product_id}…</CardContent></Card>;
-  if (q.isError || !q.data) return <Card><CardContent role="alert" className="py-8 text-danger-text">{errorMessage(q.error)}</CardContent></Card>;
-
   const d = q.data;
-  const max = Math.max(1, ...d.forecast.map((f) => f.range_80pct[1] || f.predicted_units), ...d.recent_actuals.map((a) => a.units_sold));
-  const first = d.forecast[0];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>SKU #{d.product_id} at {d.warehouse_id} ({d.city})</CardTitle>
-        <CardDescription>
-          Expected {d.total_predicted_units.toLocaleString(undefined, { maximumFractionDigits: 1 })} units over {d.days} days
-          (likely {d.total_range_80pct[0]?.toLocaleString()} to {d.total_range_80pct[1]?.toLocaleString()}).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-8 lg:grid-cols-2">
-        <div>
-          <h4 className="text-h4 text-ink-heading mb-3">Day by day</h4>
-          <div className="flex items-end gap-1.5 h-40" role="img" aria-label="Recent sales and forecast per day">
-            {d.recent_actuals.slice(-7).map((a) => (
-              <Bar key={a.date} label={a.date.slice(5)} value={a.units_sold} max={max} tone="past" />
-            ))}
-            {d.forecast.map((f) => (
-              <Bar key={f.date} label={f.date.slice(5)} value={f.predicted_units} max={max} tone="future"
-                low={f.range_80pct[0]} high={f.range_80pct[1]} />
-            ))}
-          </div>
-          <p className="mt-2 text-caption text-ink-muted">Grey: recent actual sales. Blue: forecast, with the 80% range as the lighter bar.</p>
-        </div>
-        <div>
-          <h4 className="text-h4 text-ink-heading mb-3">Why the first day looks like this ({first?.date})</h4>
-          <ul className="space-y-2">
-            {first?.drivers.map((dr) => (
-              <li key={dr.driver} className="flex items-start justify-between gap-4 text-body-sm">
-                <span>{dr.reason}</span>
-                <span className={`tabular-nums font-semibold ${dr.factor >= 1 ? 'text-success-text' : 'text-danger-text'}`}>
-                  {dr.factor >= 1 ? '↑' : '↓'} x{dr.factor.toFixed(2)}
+    <SidePanel title={`SKU ${product_id}`} subtitle={d ? `${d.warehouse_id} · ${d.city}` : warehouse_id} onClose={onClose}>
+      {q.isLoading && <p className="text-body-sm text-ink-muted">Working out what drives this SKU…</p>}
+      {q.isError && <p role="alert" className="text-body-sm text-danger-text">{errorMessage(q.error)}</p>}
+
+      {d && (
+        <>
+          <p className="text-body-sm text-ink-body">
+            <span className="tabular text-metric text-ink-heading">{n(d.total_predicted_units, 1)}</span>
+            <span className="ml-1.5">units over {d.days} days</span>
+          </p>
+          <p className="text-caption text-ink-muted">Likely {n(d.total_range_80pct[0])} to {n(d.total_range_80pct[1])}.</p>
+
+          <h3 className="mb-2 mt-5 text-h4 text-ink-heading">Day by day</h3>
+          <Chart data={d} />
+          <p className="mt-1.5 text-caption text-ink-muted">
+            Grey is what really sold. Blue is the forecast, with its likely range behind it.
+          </p>
+
+          <h3 className="mb-2 mt-5 text-h4 text-ink-heading">What moves it</h3>
+          <ul className="divide-y divide-surface-line">
+            {d.forecast[0]?.drivers.map((dr) => (
+              <li key={dr.driver} className="flex items-start justify-between gap-3 py-1.5 text-body-sm">
+                <span className="text-ink-body">{dr.reason}</span>
+                <span className={`tabular shrink-0 font-medium ${dr.factor >= 1 ? 'text-success-text' : 'text-danger-text'}`}>
+                  ×{dr.factor.toFixed(2)}
                 </span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-caption text-ink-muted">
-            A factor above 1 raises the forecast above a typical SKU; below 1 lowers it. Factors multiply to the forecast.
+          <p className="mt-2 text-caption text-ink-muted">
+            Above 1 pushes this SKU above a typical one, below 1 pulls it down. For {d.forecast[0]?.date}.
           </p>
-        </div>
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </SidePanel>
   );
 }
 
-function Bar({ label, value, max, tone, low, high }: { label: string; value: number; max: number; tone: 'past' | 'future'; low?: number; high?: number }) {
+function Chart({ data }: { data: NonNullable<ReturnType<typeof useExplain>['data']> }) {
+  const past = data.recent_actuals.slice(-7);
+  const max = Math.max(1, ...data.forecast.map((f) => f.range_80pct[1] || f.predicted_units), ...past.map((a) => a.units_sold));
   const h = (v: number) => `${Math.max(2, (v / max) * 100)}%`;
+
   return (
-    <div className="flex-1 h-full flex flex-col justify-end items-center min-w-0" title={`${label}: ${value.toFixed(1)}`}>
-      <div className="relative w-full flex-1 flex items-end">
-        {high !== undefined && low !== undefined && (
-          <div className="absolute bottom-0 w-full rounded-sm bg-primary/20" style={{ height: h(high) }} />
-        )}
-        <div className={`relative w-full rounded-sm ${tone === 'past' ? 'bg-ink-subtle' : 'bg-primary'}`} style={{ height: h(value) }} />
-      </div>
-      <span className="mt-1 text-[10px] text-ink-muted">{label}</span>
+    <div className="flex h-32 items-end gap-1" role="img" aria-label="Recent sales and forecast per day">
+      {past.map((a) => (
+        <Column key={a.date} label={a.date.slice(5)} title={`${a.date}: ${n(a.units_sold, 1)} sold`}>
+          <div className="w-full rounded-sm bg-ink-subtle" style={{ height: h(a.units_sold) }} />
+        </Column>
+      ))}
+      {data.forecast.map((f) => (
+        <Column key={f.date} label={f.date.slice(5)} title={`${f.date}: ${n(f.predicted_units, 1)} forecast`}>
+          <div className="absolute bottom-0 w-full rounded-sm bg-primary/20" style={{ height: h(f.range_80pct[1]) }} />
+          <div className="relative w-full rounded-sm bg-primary" style={{ height: h(f.predicted_units) }} />
+        </Column>
+      ))}
+    </div>
+  );
+}
+
+function Column({ label, title, children }: { label: string; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-full min-w-0 flex-1 flex-col justify-end" title={title}>
+      <div className="relative flex w-full flex-1 items-end">{children}</div>
+      <span className="mt-1 truncate text-center text-micro text-ink-subtle">{label}</span>
     </div>
   );
 }

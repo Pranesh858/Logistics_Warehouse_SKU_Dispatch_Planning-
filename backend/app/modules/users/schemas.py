@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     role: str
     warehouse_id: str | None
     active: bool
+    must_change_password: bool = False
     created_at: datetime
     last_login_at: datetime | None = None
 

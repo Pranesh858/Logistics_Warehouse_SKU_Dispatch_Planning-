@@ -1,5 +1,5 @@
-import { HeroSection } from '@/features/home/components/HeroSection';
+import { TodayPage } from '@/features/home/components/TodayPage';
 
 export default function HomePage() {
-  return <HeroSection />;
+  return <TodayPage />;
 }

@@ -7,8 +7,8 @@ import { errorMessage } from '@/lib/api';
 import { downloadReport } from '../api';
 import type { ReportKind } from '../types';
 
-/** One PDF (the key points) and one Excel file (every row) for a report. */
-export function ReportButtons({ kind, days, safety, warehouse, pdfLabel = 'PDF summary', xlsxLabel = 'Excel list' }: {
+/** One PDF for the key points, one Excel with every row. */
+export function ReportButtons({ kind, days, safety, warehouse, pdfLabel = 'PDF', xlsxLabel = 'Excel' }: {
   kind: ReportKind; days?: number; safety?: boolean; warehouse?: string; pdfLabel?: string; xlsxLabel?: string;
 }) {
   const [busy, setBusy] = useState<'pdf' | 'xlsx' | null>(null);
@@ -27,14 +27,14 @@ export function ReportButtons({ kind, days, safety, warehouse, pdfLabel = 'PDF s
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => go('pdf')}>
-        <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />{busy === 'pdf' ? 'Preparing…' : pdfLabel}
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />{busy === 'pdf' ? 'Preparing…' : pdfLabel}
       </Button>
       <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => go('xlsx')}>
-        <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />{busy === 'xlsx' ? 'Preparing…' : xlsxLabel}
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />{busy === 'xlsx' ? 'Preparing…' : xlsxLabel}
       </Button>
-      {error && <span role="alert" className="text-body-sm text-danger-text">{error}</span>}
+      {error && <span role="alert" className="text-caption text-danger-text">{error}</span>}
     </div>
   );
 }

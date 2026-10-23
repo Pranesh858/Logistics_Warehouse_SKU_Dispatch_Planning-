@@ -83,6 +83,22 @@ async def dataset_apply(admin: Admin, force: bool = False):
     return await asyncio.to_thread(dataset.start, force, done)
 
 
+@router.post("/dataset/retrain")
+async def dataset_retrain(admin: Admin):
+    """Retrain on the sales history as it now stands, without uploading anything."""
+    loop = asyncio.get_running_loop()
+
+    async def rebuild_plan():
+        async with AsyncSessionLocal() as db:
+            await dispatch_service.recommend_plan(db, trigger="retrained")
+
+    def done(_result):
+        orders.warm()
+        _a.run_coroutine_threadsafe(rebuild_plan(), loop)
+
+    return await asyncio.to_thread(dataset.start_retrain, done, "manual")
+
+
 @router.get("/dataset/status")
 async def dataset_status(admin: Admin):
     return dataset.status()
@@ -96,8 +112,9 @@ async def dataset_discard(admin: Admin):
 # ---- units to order and downloadable reports --------------------------------------------------------------------------
 async def _reserved(db: AsyncSession) -> dict:
     """Stock already promised to approved orders, per SKU x warehouse."""
-    q = select(LedgerEntry.product_id, LedgerEntry.warehouse_id, func.sum(LedgerEntry.qty_committed)).group_by(
-        LedgerEntry.product_id, LedgerEntry.warehouse_id)
+    q = (select(LedgerEntry.product_id, LedgerEntry.warehouse_id, func.sum(LedgerEntry.qty_committed))
+         .where(LedgerEntry.fulfilment == "RESERVED")
+         .group_by(LedgerEntry.product_id, LedgerEntry.warehouse_id))
     return {(p, w): float(q_) for p, w, q_ in (await db.execute(q)).all()}
 
 

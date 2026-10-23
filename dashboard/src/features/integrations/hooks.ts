@@ -29,6 +29,30 @@ export function useCreatePurchase() {
   return useMutation({ mutationFn: integrationsApi.createPurchase, onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations'] }) });
 }
 
+export const usePending = () => {
+  const userId = useAuth((s) => s.user?.id);
+  return useQuery({ queryKey: ['integrations', 'pending', userId], queryFn: integrationsApi.pending, enabled: userId !== undefined });
+};
+
+export const useAudit = (enabled: boolean) =>
+  useQuery({ queryKey: ['integrations', 'audit'], queryFn: integrationsApi.audit, enabled });
+
+export function useSaveSystem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ system, body }: { system: 'wms' | 'erp'; body: Parameters<typeof integrationsApi.saveSystem>[1] }) =>
+      integrationsApi.saveSystem(system, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations'] }),
+  });
+}
+
+export const useTestConnection = () => useMutation({ mutationFn: integrationsApi.testConnection });
+
+export function useConfirmAll() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: integrationsApi.confirmAll, onSuccess: () => refreshAll(qc) });
+}
+
 export function useRetryPurchase() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: integrationsApi.retryPurchase, onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations'] }) });

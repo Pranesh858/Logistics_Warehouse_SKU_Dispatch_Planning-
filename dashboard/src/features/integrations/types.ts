@@ -1,4 +1,4 @@
-export type FeedKey = 'inventory' | 'orders' | 'sales' | 'purchasing';
+export type FeedKey = 'inventory' | 'orders' | 'sales' | 'purchasing' | 'dispatch';
 
 export interface Feed {
   feed: FeedKey;
@@ -20,12 +20,59 @@ export interface Run {
   at: string;
 }
 
+export interface SystemSettings {
+  system: 'wms' | 'erp';
+  base_url: string;
+  enabled: boolean;
+  has_key: boolean;
+  field_map: Record<string, Record<string, string>>;
+  sync_minutes: Record<string, number>;
+  source: 'app' | 'env';
+  updated_by: string | null;
+  updated_at: string | null;
+  feeds: string[];
+}
+
 export interface IntegrationStatus {
   feeds: Feed[];
   dispatch_export: { system: string; mode: 'simulator' | 'live' };
   live_stock_skus: number;
   webhooks_enabled: boolean;
+  awaiting_confirmation: number;
+  systems: Record<'wms' | 'erp', SystemSettings>;
   runs: Run[];
+}
+
+export interface SystemInput {
+  base_url: string;
+  api_key?: string | null;
+  enabled: boolean;
+  field_map: Record<string, Record<string, string>>;
+  sync_minutes: Record<string, number>;
+}
+
+export interface TestResult {
+  ok: boolean;
+  error?: string;
+  rows?: number;
+  missing?: string[];
+  sample?: Record<string, unknown> | null;
+  note?: string;
+}
+
+export interface PendingConfirmations {
+  count: number;
+  orders: { order_id: string; product_id: number; warehouse_id: string; qty: number; wms_status: string; committed_at: string | null }[];
+}
+
+export interface AuditEntry {
+  id: number;
+  at: string | null;
+  username: string;
+  role: string;
+  action: string;
+  warehouse_id: string | null;
+  detail: string;
 }
 
 export interface PurchaseOrder {

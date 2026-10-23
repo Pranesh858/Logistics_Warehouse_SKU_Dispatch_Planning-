@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.core.auth import CurrentUser, Planner, ensure_warehouse, pick_warehouse, scope
 from app.core.deps import DB
+from app.core.audit import record
 from app.modules.dispatch import service
 from app.modules.dispatch.schemas import (
     ApproveIn, BlockIn, OrdersIn, PlanBrief, PlanOut, ReviewIn, TruckIn, TruckMoveIn, TruckOut, TruckUpdate,
@@ -65,7 +66,11 @@ async def approve(plan_id: int, body: ApproveIn, db: DB, user: Planner):
     (or one, with warehouse_id). Approved lines are sent to the WMS right away; this is the only way anything reaches it."""
     wh = pick_warehouse(user, body.warehouse_id)
     plan = await service.approve_plan(db, plan_id, body.approved_by or user.name, wh)
-    return await _view(db, await service.get_plan(db, plan.id), user, wh)
+    view = await _view(db, await service.get_plan(db, plan.id), user, wh)
+    sent = view.get("summary", {}) if isinstance(view, dict) else {}
+    await record(db, user, "plan_approved",
+                 f"plan v{plan.version} ({plan.status}) for {wh or 'all warehouses'}: {sent.get('orders_to_send', '?')} orders", wh)
+    return view
 
 
 @router.post("/plans/{plan_id}/exports/retry", response_model=PlanOut)

@@ -18,7 +18,7 @@ def stock_of(client, pid, wh):
 
 def test_status_lists_feeds_in_simulator_mode(client):
     d = client.get(f"{API}/integrations/status").json()
-    assert [f["feed"] for f in d["feeds"]] == ["inventory", "orders", "sales", "purchasing"]
+    assert [f["feed"] for f in d["feeds"]] == ["inventory", "orders", "sales", "purchasing", "dispatch"]
     assert all(f["mode"] == "simulator" for f in d["feeds"]) and d["dispatch_export"]["mode"] == "simulator"
 
 

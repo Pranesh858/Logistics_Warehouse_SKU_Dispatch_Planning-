@@ -40,7 +40,7 @@ def test_login_checks_the_password(anon):
     assert ok.status_code == 200
     body = ok.json()
     assert body["user"]["role"] == "planner" and body["user"]["warehouse_id"] == "WH01"
-    assert "password" not in str(body["user"]).lower()
+    assert "password_hash" not in body["user"] and DEMO_PASSWORD not in str(body["user"])
     anon.headers["Authorization"] = f"Bearer {body['access_token']}"
     assert anon.get(f"{API}/auth/me").json()["username"] == "planner.wh01"
 
@@ -211,13 +211,18 @@ def test_switching_a_user_off_or_changing_the_password_takes_effect_at_once(clie
     sign_in_with = other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Secret#123"})
     assert sign_in_with.status_code == 200
     other.headers["Authorization"] = f"Bearer {sign_in_with.json()['access_token']}"
+    # the admin chose that password, so the viewer picks their own before anything else works
+    own = other.post(f"{API}/auth/change-password", json={"current_password": "Secret#123", "new_password": "Secret#123own"})
+    assert own.status_code == 200
+    other.headers["Authorization"] = f"Bearer {own.json()['access_token']}"
     assert other.get(f"{D}/plans/current").status_code == 200
     assert client.patch(f"{API}/users/{uid}", json={"active": False}).status_code == 200
     assert other.get(f"{D}/plans/current").status_code == 401            # the old token stops working
-    assert other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Secret#123"}).status_code == 401
+    assert other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Secret#123own"}).status_code == 401
     client.patch(f"{API}/users/{uid}", json={"active": True, "password": "Another#456"})
-    assert other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Secret#123"}).status_code == 401
-    assert other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Another#456"}).status_code == 200
+    assert other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Secret#123own"}).status_code == 401
+    back = other.post(f"{API}/auth/login", json={"username": "temp.viewer", "password": "Another#456"})
+    assert back.status_code == 200 and back.json()["user"]["must_change_password"] is True
 
 
 def test_admin_cannot_lock_themselves_out(client):

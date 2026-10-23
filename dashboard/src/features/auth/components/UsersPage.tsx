@@ -3,7 +3,8 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Empty, Table, TableFrame, TD, TH, THead, TR } from '@/components/ui/table';
+import { PageBody, PageHeader } from '@/components/layout/PageHeader';
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
 import { useWarehouseList } from '@/features/dispatch/hooks';
@@ -48,88 +49,93 @@ export function UsersPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
-      <header>
-        <h1 className="text-[1.5rem] font-semibold tracking-tight text-ink-heading">Users and access</h1>
-        <p className="mt-1 max-w-2xl text-body-sm text-ink-muted">
-          A planner works on one warehouse only. A viewer can read every warehouse but change nothing. An admin sees everything and manages these accounts.
-        </p>
-      </header>
-
-      <Card>
-        <CardContent className="pt-5">
-          <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-            <label className="text-label text-ink-muted">Username
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 w-40" required minLength={3} autoComplete="off" />
-            </label>
-            <label className="text-label text-ink-muted">Full name
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-48" required />
-            </label>
-            <label className="text-label text-ink-muted">Password (8+ characters)
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 w-44" required minLength={8} autoComplete="new-password" />
-            </label>
-            <label className="text-label text-ink-muted">Role
-              <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="mt-1 block h-9 rounded-md border border-input bg-surface px-2 text-body-sm">
-                {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+    <>
+      <PageHeader
+        title="People"
+        lead="A planner works one warehouse. A viewer reads every warehouse and changes nothing. An admin manages these accounts."
+      />
+      <PageBody className="space-y-4">
+        <form onSubmit={submit} className="flex flex-wrap items-end gap-2.5 rounded-md border border-surface-line bg-surface px-4 py-3">
+          <label className="text-label text-ink-muted">Username
+            <Input value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 h-comp-sm w-36" required minLength={3} autoComplete="off" />
+          </label>
+          <label className="text-label text-ink-muted">Full name
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 h-comp-sm w-44" required />
+          </label>
+          <label className="text-label text-ink-muted">Starting password
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 h-comp-sm w-40"
+              required minLength={8} autoComplete="new-password" placeholder="8+ characters" />
+          </label>
+          <label className="text-label text-ink-muted">Role
+            <select value={role} onChange={(e) => setRole(e.target.value as Role)}
+              className="mt-1 block h-comp-sm rounded-md border border-input bg-surface px-2 text-caption text-ink-heading hover:border-ink-subtle">
+              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </select>
+          </label>
+          {role !== 'admin' && (
+            <label className="text-label text-ink-muted">Warehouse{role === 'viewer' ? ' (optional)' : ''}
+              <select value={wh || (needsWh ? whList[0] : '') || ''} onChange={(e) => setWh(e.target.value)}
+                className="mt-1 block h-comp-sm rounded-md border border-input bg-surface px-2 text-caption text-ink-heading hover:border-ink-subtle">
+                {role === 'viewer' && <option value="">All warehouses</option>}
+                {whList.map((w) => <option key={w}>{w}</option>)}
               </select>
             </label>
-            {role !== 'admin' && (
-              <label className="text-label text-ink-muted">Warehouse{role === 'viewer' ? ' (optional)' : ''}
-                <select value={wh || (needsWh ? whList[0] : '') || ''} onChange={(e) => setWh(e.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-surface px-2 text-body-sm">
-                  {role === 'viewer' && <option value="">All warehouses</option>}
-                  {whList.map((w) => <option key={w}>{w}</option>)}
-                </select>
-              </label>
-            )}
-            <Button type="submit" disabled={add.isPending || !username.trim() || !name.trim() || password.length < 8}>Add user</Button>
-          </form>
-          {error && <p role="alert" className="mt-3 rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-body-sm text-danger-text">{error}</p>}
-        </CardContent>
-      </Card>
+          )}
+          <Button type="submit" size="sm" disabled={add.isPending || !username.trim() || !name.trim() || password.length < 8}>Add person</Button>
+          <p className="w-full text-caption text-ink-subtle">They must choose their own password the first time they sign in.</p>
+        </form>
 
-      <Card>
-        <CardContent className="overflow-x-auto pt-5">
-          {users.isLoading ? <p className="text-ink-muted">Loading users…</p> : users.isError ? (
-            <p role="alert" className="text-danger-text">{errorMessage(users.error)}</p>
-          ) : (
-            <table className="w-full text-body-sm">
-              <thead><tr className="border-b border-surface-line text-left text-label text-ink-muted">
-                <th className="py-2 pr-3">User</th><th className="pr-3">Role</th><th className="pr-3">Warehouse</th>
-                <th className="pr-3">Last sign-in</th><th className="pr-3">Status</th><th />
-              </tr></thead>
+        {error && <p role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-body-sm text-danger-text">{error}</p>}
+
+        {users.isLoading ? <p className="py-8 text-center text-body-sm text-ink-muted">Loading…</p>
+          : users.isError ? <p role="alert" className="text-body-sm text-danger-text">{errorMessage(users.error)}</p> : (
+          <TableFrame>
+            <Table>
+              <THead>
+                <tr><TH>Person</TH><TH>Role</TH><TH>Warehouse</TH><TH>Last sign-in</TH><TH>Status</TH><TH /></tr>
+              </THead>
               <tbody>
                 {sorted.map((u) => (
-                  <tr key={u.id} className="border-b border-surface-line align-top">
-                    <td className="py-2 pr-3"><div className="font-medium text-ink-heading">{u.name}</div><div className="text-caption text-ink-muted">{u.username}</div></td>
-                    <td className="pr-3 py-2"><Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{ROLE_LABEL[u.role]}</Badge></td>
-                    <td className="pr-3 py-2 text-ink-body">{u.warehouse_id ?? 'All'}</td>
-                    <td className="pr-3 py-2 text-ink-muted">{when(u.last_login_at)}</td>
-                    <td className="pr-3 py-2"><Badge variant={u.active ? 'success' : 'secondary'}>{u.active ? 'Active' : 'Switched off'}</Badge></td>
-                    <td className="py-2 text-right">
+                  <TR key={u.id} rail={u.active ? 'none' : 'warn'}>
+                    <TD>
+                      <span className="block font-medium text-ink-heading">{u.name}</span>
+                      <span className="block font-mono text-caption text-ink-subtle">{u.username}</span>
+                    </TD>
+                    <TD><Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{ROLE_LABEL[u.role]}</Badge></TD>
+                    <TD muted>{u.warehouse_id ?? 'All'}</TD>
+                    <TD muted className="whitespace-nowrap">{when(u.last_login_at)}</TD>
+                    <TD>
+                      <Badge variant={u.active ? 'success' : 'secondary'}>{u.active ? 'Active' : 'Off'}</Badge>
+                      {u.must_change_password && <Badge variant="warning" className="ml-1.5">Must set password</Badge>}
+                    </TD>
+                    <TD align="right">
                       {resetFor === u.id ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Input type="password" aria-label={`New password for ${u.username}`} value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="New password" className="h-8 w-40" autoComplete="new-password" />
-                          <Button size="sm" disabled={newPw.length < 8 || edit.isPending} onClick={() => change(u, { password: newPw }, () => { setResetFor(null); setNewPw(''); })}>Save</Button>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Input type="password" aria-label={`New password for ${u.username}`} value={newPw} onChange={(e) => setNewPw(e.target.value)}
+                            placeholder="New password" className="h-comp-sm w-36" autoComplete="new-password" />
+                          <Button size="sm" disabled={newPw.length < 8 || edit.isPending}
+                            onClick={() => change(u, { password: newPw }, () => { setResetFor(null); setNewPw(''); })}>Save</Button>
                           <Button size="sm" variant="ghost" onClick={() => { setResetFor(null); setNewPw(''); }}>Cancel</Button>
                         </span>
                       ) : (
-                        <span className="inline-flex gap-2">
+                        <span className="inline-flex gap-1.5">
                           <Button size="sm" variant="outline" onClick={() => { setResetFor(u.id); setNewPw(''); }}>Reset password</Button>
                           {u.id !== me?.id && (
-                            <Button size="sm" variant={u.active ? 'ghost' : 'outline'} disabled={edit.isPending} onClick={() => change(u, { active: !u.active })}>
+                            <Button size="sm" variant="ghost" disabled={edit.isPending} onClick={() => change(u, { active: !u.active })}>
                               {u.active ? 'Switch off' : 'Switch on'}
                             </Button>
                           )}
                         </span>
                       )}
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
+                {sorted.length === 0 && <Empty colSpan={6}>No accounts yet.</Empty>}
               </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+            </Table>
+          </TableFrame>
+        )}
+      </PageBody>
+    </>
   );
 }

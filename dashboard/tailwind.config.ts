@@ -1,5 +1,13 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Dispatch Planner.
+ *
+ * Built for people who read this screen all day beside a warehouse floor, so it is dense, quiet and
+ * instrument-like: small type with real tabular figures, hairline rules instead of floating cards,
+ * and a short radius. IBM Plex Sans carries the interface; IBM Plex Mono is used only where a string
+ * is an identifier someone will read out or type back (order ids, SKU codes, references).
+ */
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -10,8 +18,8 @@ const config: Config = {
   ],
   theme: {
     fontFamily: {
-      sans: ["Segoe UI Variable Text", "Segoe UI", "Inter", "system-ui", "-apple-system", "BlinkMacSystemFont", "Helvetica Neue", "sans-serif"],
-      mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+      sans: ["'IBM Plex Sans Variable'", "'IBM Plex Sans'", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+      mono: ["'IBM Plex Mono'", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
     },
     extend: {
       colors: {
@@ -23,86 +31,114 @@ const config: Config = {
         card:    { DEFAULT: "hsl(var(--card))",    foreground: "hsl(var(--card-foreground))"    },
         popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
         primary: {
-          DEFAULT:    "hsl(var(--primary))",
+          DEFAULT:    "hsl(var(--accent))",
           foreground: "hsl(var(--primary-foreground))",
-          hover:      "hsl(var(--primary-hover))",
-          soft:       "hsl(var(--primary-soft))",
+          hover:      "hsl(var(--accent-hi))",
+          soft:       "hsl(var(--accent-soft))",
           muted:      "hsl(var(--primary-muted))",
         },
         secondary:   { DEFAULT: "hsl(var(--secondary))",   foreground: "hsl(var(--secondary-foreground))"   },
         muted:       { DEFAULT: "hsl(var(--muted))",       foreground: "hsl(var(--muted-foreground))"       },
         destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" },
-        success: { DEFAULT: "#12B76A", soft: "#ECFDF3", text: "#067647", border: "#ABEFC6" },
-        warning: { DEFAULT: "#F79009", soft: "#FFFAEB", text: "#B54708", border: "#FEDF89" },
-        danger:  { DEFAULT: "#F04438", soft: "#FEF3F2", text: "#B42318", border: "#FECDCA" },
+
+        /* the dark navigation rail */
+        chrome: {
+          DEFAULT: "hsl(var(--chrome))",
+          raised:  "hsl(var(--chrome-raised))",
+          line:    "hsl(var(--chrome-line))",
+          text:    "hsl(var(--chrome-text))",
+        },
+
+        /* status. Each has a line colour for rails and marks, and a wash for the rare filled area. */
+        success: { DEFAULT: "#0E7C5A", soft: "#E7F4EF", text: "#0B5F46", border: "#B3DECB" },
+        warning: { DEFAULT: "#B4690E", soft: "#FCF2E3", text: "#8A500A", border: "#EBCB97" },
+        danger:  { DEFAULT: "#C13A2E", soft: "#FBECEA", text: "#96281F", border: "#EFB7B0" },
+
         surface: {
-          DEFAULT: "#FFFFFF",
-          page:    "#F5F6F8",
-          raised:  "#FFFFFF",
-          muted:   "#F9FAFB",
-          subtle:  "#F2F4F7",
-          line:    "#E4E7EC",
+          DEFAULT: "hsl(var(--paper))",
+          page:    "hsl(var(--field))",
+          raised:  "hsl(var(--paper))",
+          muted:   "hsl(var(--field))",
+          subtle:  "hsl(216 20% 95%)",
+          line:    "hsl(var(--rule))",
+          rule:    "hsl(var(--rule-strong))",
         },
         ink: {
-          heading: "#101828",
-          body:    "#344054",
-          muted:   "#667085",
-          subtle:  "#98A2B3",
+          heading: "hsl(var(--ink-900))",
+          body:    "hsl(var(--ink-700))",
+          muted:   "hsl(var(--ink-500))",
+          subtle:  "hsl(var(--ink-400))",
         },
         chart: {
           predicted: "#1F4B8E",
-          actual:    "#0E8F72",
-          target:    "#B54708",
+          actual:    "#0E7C5A",
+          target:    "#B4690E",
+          grid:      "#E2E6ED",
+          axis:      "#5A6782",
         },
       },
+
+      /* Short, consistent corners. Only what genuinely floats gets a larger one. */
       borderRadius: {
-        lg:   "var(--radius)",
-        md:   "calc(var(--radius) - 4px)",
-        sm:   "calc(var(--radius) - 8px)",
+        sm:   "0.1875rem",
+        md:   "0.3125rem",
+        lg:   "0.3125rem",
+        xl:   "0.5rem",
         pill: "9999px",
       },
+
+      /* A 14px base, because this screen is read as a table all day. */
       fontSize: {
-        "tiny":    ["0.65rem",   { lineHeight: "1rem"    }],
-        "label":   ["0.75rem",   { lineHeight: "1rem"    }],
-        "caption": ["0.8125rem", { lineHeight: "1.25rem" }],
-        "body-sm": ["0.875rem",  { lineHeight: "1.25rem" }],
-        "body":    ["0.95rem",   { lineHeight: "1.5rem"  }],
-        "h4":      ["1em",       { lineHeight: "1.5rem",  fontWeight: "700" }],
-        "h3":      ["1.25em",    { lineHeight: "1.75rem", fontWeight: "700" }],
-        "h2":      ["1.5em",     { lineHeight: "2rem",    fontWeight: "700" }],
-        "h1":      ["1.75em",    { lineHeight: "2.25rem", fontWeight: "700" }],
+        "micro":   ["0.6875rem", { lineHeight: "0.875rem", letterSpacing: "0.01em" }],
+        "tiny":    ["0.6875rem", { lineHeight: "0.875rem" }],
+        "label":   ["0.75rem",   { lineHeight: "1rem"     }],
+        "caption": ["0.8125rem", { lineHeight: "1.125rem" }],
+        "body-sm": ["0.8125rem", { lineHeight: "1.25rem"  }],
+        "body":    ["0.875rem",  { lineHeight: "1.375rem" }],
+        "lead":    ["1rem",      { lineHeight: "1.5rem"   }],
+        "h4":      ["0.875rem",  { lineHeight: "1.25rem", fontWeight: "600", letterSpacing: "-0.003em" }],
+        "h3":      ["1rem",      { lineHeight: "1.375rem", fontWeight: "600", letterSpacing: "-0.006em" }],
+        "h2":      ["1.25rem",   { lineHeight: "1.625rem", fontWeight: "600", letterSpacing: "-0.012em" }],
+        "h1":      ["1.5rem",    { lineHeight: "1.875rem", fontWeight: "600", letterSpacing: "-0.018em" }],
+        "metric":  ["1.75rem",   { lineHeight: "2rem",     fontWeight: "600", letterSpacing: "-0.022em" }],
+        "metric-lg": ["2.25rem", { lineHeight: "2.5rem",   fontWeight: "600", letterSpacing: "-0.026em" }],
       },
+
       height: {
-        "comp-sm": "2rem",
-        "comp-md": "2.5rem",
-        "comp-lg": "3rem",
+        "comp-sm": "1.75rem",
+        "comp-md": "2.125rem",
+        "comp-lg": "2.5rem",
+        "row":     "2.25rem",
+        "topbar":  "3.25rem",
+      },
+      width: {
+        "rail":     "13.5rem",
+        "rail-sm":  "3.5rem",
+        "panel":    "26rem",
       },
       spacing: {
-        "section": "4rem",
-        "element": "1.5rem",
+        "rail":    "13.5rem",
+        "rail-sm": "3.5rem",
+        "topbar":  "3.25rem",
+        "gutter":  "1.25rem",
       },
+
       boxShadow: {
-        card:     "0 1px 2px rgba(16, 24, 40, 0.04)",
-        panel:    "0 1px 2px rgba(16, 24, 40, 0.05), 0 8px 24px rgba(16, 24, 40, 0.04)",
-        elevated: "0 12px 32px rgba(16, 24, 40, 0.12)",
+        card:     "none",
+        panel:    "0 1px 1px rgba(11, 18, 32, 0.03), 0 10px 28px -12px rgba(11, 18, 32, 0.22)",
+        pop:      "0 2px 4px rgba(11, 18, 32, 0.06), 0 16px 32px -12px rgba(11, 18, 32, 0.28)",
+        elevated: "0 2px 4px rgba(11, 18, 32, 0.06), 0 16px 32px -12px rgba(11, 18, 32, 0.28)",
       },
+
       keyframes: {
-        "accordion-down": { from: { height: "0" }, to: { height: "var(--radix-accordion-content-height)" } },
-        "accordion-up":   { from: { height: "var(--radix-accordion-content-height)" }, to: { height: "0" } },
-        "shimmer":        { "0%": { backgroundPosition: "200% 0" }, "100%": { backgroundPosition: "-200% 0" } },
-        "diagonal-move":  { "0%, 100%": { transform: "translate(0, 0) scale(1)" }, "10%": { transform: "translate(8px, -8px) scale(1.1)" }, "20%": { transform: "translate(0, 0) scale(1)" } },
-        "slide-in-right": { from: { transform: "translateX(100%)" }, to: { transform: "translateX(0)" } },
-        "slide-out-left": { from: { transform: "translateX(0)" }, to: { transform: "translateX(-100%)" } },
-        "slide-out-right":{ from: { transform: "translateX(0)" }, to: { transform: "translateX(100%)" } },
+        "panel-in":  { from: { opacity: "0", transform: "translateX(12px)" }, to: { opacity: "1", transform: "translateX(0)" } },
+        "fade-in":   { from: { opacity: "0" }, to: { opacity: "1" } },
+        "shimmer":   { "0%": { backgroundPosition: "200% 0" }, "100%": { backgroundPosition: "-200% 0" } },
       },
       animation: {
-        "accordion-down":  "accordion-down 0.2s ease-out",
-        "accordion-up":    "accordion-up 0.2s ease-out",
-        "shimmer":         "shimmer 1.5s infinite",
-        "diagonal":        "diagonal-move 3s ease-in-out infinite",
-        "slide-in-right":  "slide-in-right 0.5s ease-in-out",
-        "slide-out-left":  "slide-out-left 0.5s ease-in-out",
-        "slide-out-right": "slide-out-right 0.5s ease-in-out",
+        "panel-in": "panel-in 0.16s cubic-bezier(0.2, 0, 0, 1)",
+        "fade-in":  "fade-in 0.12s linear",
+        "shimmer":  "shimmer 1.4s infinite",
       },
     },
   },

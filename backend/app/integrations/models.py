@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -30,6 +30,22 @@ class IntegrationRun(Base):
     rows: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str] = mapped_column(Text, default="")
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class IntegrationSetting(Base):
+    """Connection details an admin enters in the app, so a new WMS or ERP can be connected without touching code.
+    What is stored here wins over the values in .env."""
+
+    __tablename__ = "integration_settings"
+
+    system: Mapped[str] = mapped_column(String(10), primary_key=True)     # wms | erp
+    base_url: Mapped[str] = mapped_column(String(300), default="")
+    api_key: Mapped[str] = mapped_column(String(300), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)         # off = keep using the simulator
+    field_map: Mapped[dict] = mapped_column(JSON, default=dict)           # {"inventory": {"product_id": "sku"}, ...}
+    sync_minutes: Mapped[dict] = mapped_column(JSON, default=dict)        # {"inventory": 5, "orders": 5, "sales": 1440}
+    updated_by: Mapped[str] = mapped_column(String(60), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class PurchaseOrder(Base):

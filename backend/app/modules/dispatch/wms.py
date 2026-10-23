@@ -51,13 +51,27 @@ _client: WmsClient | None = None
 
 
 def get_wms_client() -> WmsClient:
+    """Follows the connection the admin set in the app; falls back to .env, and to the simulator when neither is set."""
     global _client
-    if _client is None:
-        _client = HttpWms(settings.wms_base_url, settings.wms_api_key) if settings.wms_base_url else SimulatedWms()
-    return _client
+    if _client is not None:
+        return _client
+    from app.integrations import config_store
+    base = config_store.base_url("dispatch")
+    return HttpWms(base, config_store.api_key("dispatch")) if base else _simulator()
+
+
+def _simulator() -> WmsClient:
+    global _sim
+    if _sim is None:
+        _sim = SimulatedWms()
+    return _sim
+
+
+_sim: WmsClient | None = None
 
 
 def set_wms_client(client: WmsClient | None) -> None:
     """Used by tests."""
-    global _client
+    global _client, _sim
     _client = client
+    _sim = None

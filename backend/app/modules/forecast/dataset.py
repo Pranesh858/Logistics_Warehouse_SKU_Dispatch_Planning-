@@ -39,6 +39,83 @@ def _read(filename: str, content: bytes) -> pd.DataFrame:
         raise BadRequestError("The file could not be read. Upload a CSV or Excel (.xlsx) file.") from exc
 
 
+def last_trained() -> str | None:
+    import json
+    from pathlib import Path
+    try:
+        meta = json.loads(Path(settings.model_metadata_path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return meta.get("retrained_at") or (meta.get("training_date_range") or [None, None])[1]
+
+
+def _baseline_wape() -> float | None:
+    """How accurate the model in use was when it was accepted, so a new one can be judged against it."""
+    import json
+    from pathlib import Path
+    try:
+        meta = json.loads(Path(settings.model_metadata_path).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    check = meta.get("retrain_check") or {}
+    return check.get("wape_after") or (meta.get("cv_metrics") or {}).get("avg_wape")
+
+
+def _retrain_on_history() -> dict:
+    """Retrain on the sales history as it now stands. Used by the schedule and by the Retrain now button;
+    no upload is involved, so this is for history that grew through the ERP sales feed."""
+    import pandas as pd
+
+    raw = pd.read_csv(settings.dataset_path, parse_dates=["date"])
+    _set(step="Testing a new model on the most recent weeks", progress=30)
+    cutoff = raw["date"].max() - pd.Timedelta(days=train.HOLDOUT_DAYS)
+    wape_new, rows = train.holdout_score(raw, cutoff)
+    baseline = _baseline_wape()
+    worse = bool(baseline and wape_new == wape_new and wape_new > baseline * (1 + train.MAX_WAPE_WORSENING))
+    comparison = {"holdout_days": train.HOLDOUT_DAYS, "rows_scored": rows,
+                  "wape_before": round(baseline, 4) if baseline else None, "wape_after": round(wape_new, 4),
+                  "worse": worse,
+                  "change_pct": round((wape_new - baseline) / baseline * 100, 1) if baseline else 0.0}
+    if worse:
+        return {"promoted": False, "comparison": comparison, "left_out": 0}
+    _set(step="Training the final model on all data", progress=70)
+    frame = train.features_from_raw(raw)
+    model = train.fit(frame)
+    _set(step="Saving and switching to the new model", progress=90)
+    backup = train.promote(model, raw, frame, comparison)
+    runtime.reload()
+    meta = runtime.meta
+    return {"promoted": True, "comparison": comparison, "backup": backup, "left_out": 0,
+            "products": meta["products"], "warehouses": meta["warehouses"],
+            "history_to": meta["training_date_range"][1], "training_rows": meta["training_rows"], "new_product_ids": []}
+
+
+def start_retrain(on_done, reason: str = "manual") -> dict:
+    """Retrain on the current history, in the background. Same status endpoint as an upload."""
+    with _lock:
+        if _state["state"] == "running":
+            raise BadRequestError("A retrain is already running.")
+        _state.update(state="running", step="Reading the sales history", progress=5, result=None, error=None, reason=reason)
+    threading.Thread(target=_run_history, args=(on_done,), daemon=True).start()
+    return status()
+
+
+def _run_history(on_done):
+    try:
+        result = _retrain_on_history()
+    except Exception as exc:
+        _set(state="failed", step="Failed", progress=100, error=str(exc))
+        return
+    if not result["promoted"]:
+        _set(state="rejected", step="Kept the current model", progress=100, result=result)
+        return
+    _set(state="done", step="Done", progress=100, result=result)
+    try:
+        on_done(result)
+    except Exception:
+        pass
+
+
 def stage(filename: str, content: bytes) -> dict:
     """Validate an upload and keep it ready to apply. Nothing about the live model changes here."""
     if status()["state"] == "running":

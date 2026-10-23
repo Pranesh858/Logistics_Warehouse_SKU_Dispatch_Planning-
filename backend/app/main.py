@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core import audit as _audit  # noqa: F401  (registers the audit table)
+from app.core.startup_checks import check_production_settings
 from app.core.database import engine, Base
 from app.core.database import AsyncSessionLocal
 from app.modules.dispatch import service as dispatch_service
@@ -13,17 +15,21 @@ from app.modules.auth.router import router as auth_router
 from app.modules.users import service as users_service
 from app.modules.users.router import router as users_router
 from app.integrations import models as _integration_models  # noqa: F401  (registers the tables)
+from app.integrations import config_store as integration_config
 from app.integrations import service as integration_service
 from app.integrations.router import router as integrations_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    check_production_settings()
+    if settings.auto_create_tables:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await users_service.seed_users(db)
     async with AsyncSessionLocal() as db:
+        await integration_config.load(db)
         await integration_service.load_overlay(db)
     if settings.auto_plan_on_startup:
         # The first recommended plan is built automatically; sending anything to the WMS still needs approval.

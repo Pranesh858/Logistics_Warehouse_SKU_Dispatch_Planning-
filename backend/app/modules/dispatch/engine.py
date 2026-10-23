@@ -40,7 +40,10 @@ def allocate(orders: pd.DataFrame, stock: pd.DataFrame, now=None, blocked: set |
     blocked = blocked or set()
     ledger = ledger if ledger is not None else pd.DataFrame(columns=["order_id", "product_id", "warehouse_id", "qty_committed"])
     committed = {r.order_id: float(r.qty_committed) for r in ledger.itertuples()}
-    committed_stock = (ledger.groupby(["product_id", "warehouse_id"])["qty_committed"].sum().to_dict()
+    # Orders the WMS has confirmed as shipped no longer hold stock back: the goods have left, and the stock
+    # figure the WMS reports already shows that. Without this the same units would be subtracted twice.
+    held = "qty_reserved" if "qty_reserved" in ledger.columns else "qty_committed"
+    committed_stock = (ledger.groupby(["product_id", "warehouse_id"])[held].sum().to_dict()
                        if len(ledger) else {})
     stock_map = {(r.product_id, r.warehouse_id): (float(r.stock_on_hand), r.city) for r in stock.itertuples()}
 

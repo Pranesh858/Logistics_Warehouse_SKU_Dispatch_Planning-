@@ -23,5 +23,6 @@ class AppUser(Base):
     role: Mapped[str] = mapped_column(String(12))
     warehouse_id: Mapped[str | None] = mapped_column(String(10), nullable=True)   # planners (and optionally viewers) are tied to one warehouse
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)   # a password someone else set
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

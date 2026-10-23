@@ -31,12 +31,12 @@ export function TruckSetup({ warehouses, readOnly = false }: { warehouses: strin
 
   return (
     <div className="space-y-5">
-      <p className="text-body-sm text-ink-muted max-w-2xl">
+      <p className="text-caption text-ink-muted max-w-2xl">
         A truck loads from one warehouse and holds up to its capacity in units. The plan is loaded onto these trucks in priority order.
         Changing a truck re-loads the plan straight away.
       </p>
 
-      {!readOnly && <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-lg border border-surface-line bg-surface-muted p-4">
+      {!readOnly && <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-md border border-surface-line bg-surface-muted p-4">
         <label className="text-label text-ink-muted">Truck name
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. WH01-Large" className="mt-1 w-44" required />
         </label>
@@ -84,7 +84,7 @@ function TruckRow({ truck, busy, readOnly, onSave, onRemove }: {
       <td className="py-1.5 pr-3"><Input aria-label={`Name of ${truck.name}`} readOnly={readOnly} value={name} onChange={(e) => setName(e.target.value)} className="h-8 w-44" /></td>
       <td className="pr-3 text-ink-body">{truck.warehouse_id}</td>
       <td className="pr-3 text-right"><Input aria-label={`Capacity of ${truck.name}`} readOnly={readOnly} type="number" min={1} step="any" value={cap}
-        onChange={(e) => setCap(e.target.value)} className="ml-auto h-8 w-28 text-right tabular-nums" /></td>
+        onChange={(e) => setCap(e.target.value)} className="ml-auto h-8 w-28 text-right tabular" /></td>
       <td className="whitespace-nowrap text-right">
         {readOnly ? null : dirty
           ? <Button size="sm" disabled={busy || !name.trim() || Number(cap) <= 0}

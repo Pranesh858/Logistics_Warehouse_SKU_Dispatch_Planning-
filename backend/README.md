@@ -254,8 +254,10 @@ The planner talks to two outside systems. Each feed has a built-in **simulator**
 
 Requests carry `Authorization: Bearer <WMS_API_KEY | ERP_API_KEY>`. If a real system names its fields differently, change the mapping in the matching `Http...` class in `app/integrations/clients.py` (one place per feed).
 
+Connecting a real system: an admin does it in the app, under **Integrations -> Connected systems**. Enter the address and access key, say how often to check, press *Test connection* to see what comes back, then switch the system on. What is saved there wins over `.env`, so no code or server change is needed to move from the simulator to a real WMS or ERP, or from one vendor to another. If the system names fields differently, map them in the same form (`inventory.product_id = sku`); only that mapping changes, never the planning logic.
+
 How data gets in:
-- **Pull:** the admin presses *Sync now*, or set `INVENTORY_SYNC_MINUTES`, `ORDER_SYNC_MINUTES`, `SALES_SYNC_MINUTES` (0 = off; a live setup is typically 5 / 5 / 1440).
+- **Pull:** the admin presses *Sync now*, or sets the interval per feed in the same form (or `INVENTORY_SYNC_MINUTES`, `ORDER_SYNC_MINUTES`, `SALES_SYNC_MINUTES` as fallbacks; 0 = off, a live setup is typically 5 / 5 / 1440).
 - **Push:** set `INTEGRATION_WEBHOOK_KEY` and the WMS/ERP can call `POST /integrations/webhooks/inventory` (`{"items": [...]}`) and `POST /integrations/webhooks/orders` (same body as `POST /dispatch/orders`) with header `X-Integration-Key`.
 
 What each feed changes:
@@ -266,4 +268,48 @@ What each feed changes:
 
 Every attempt is written to `integration_runs` (the activity log on the Integrations page). A failed exchange never stops the app.
 
-Stock semantics: the stock feed is read as physical stock on hand, and the planner subtracts stock it has already committed to approved dispatches. If your WMS lowers on-hand when goods are picked, plan for dispatch confirmations so reservations are released (not built yet).
+**Dispatch confirmations.** Approved orders hold their stock until the warehouse says what happened, through
+`POST /integrations/webhooks/dispatch-confirmations` (`{"items": [{"order_id": "O-1", "status": "shipped"}]}`), the
+*Mark all as shipped* button, or `POST /integrations/confirmations`. On `shipped` the order is finished: it leaves the
+plan, the hold is released and the stock figure drops by what went out, so the same units are never promised twice.
+On `cancelled` the hold is released, the stock stays, and the order is dropped. Where a WMS stock feed is connected,
+its next report overwrites these figures with the authoritative ones.
+
+Stock semantics: the stock feed is read as physical stock on hand, and the planner holds back stock it has committed to
+approved dispatches until they are confirmed.
+
+## Running it for real
+
+| Setting | What it does |
+|---|---|
+| `APP_ENV=production` | Turns on the start-up checks below. The service refuses to start with demo settings. |
+| `AUTO_CREATE_TABLES=false` | Tables come from the migrations instead of the models. |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | Wrong passwords allowed per account before sign-in pauses (10 in 15 minutes). |
+| `RETRAIN_EVERY_DAYS` | Retrain on the grown sales history every N days (0 = only when asked). |
+
+With `APP_ENV=production` the service will not start while `SECRET_KEY` is the example value or too short, the demo
+password is still the published one, `DEBUG` is on, the database is SQLite, or `AUTO_CREATE_TABLES` is true. Each
+problem is named with how to fix it.
+
+**Migrations.** `alembic upgrade head` creates or upgrades the schema; `alembic revision --autogenerate -m "..."`
+writes a new revision after a model change. Both read `DATABASE_URL` from `.env`, so they always run against the same
+database as the service.
+
+**Passwords.** A password chosen by somebody else (a new account, or an admin reset) must be replaced before anything
+else works: the person is sent to Account and every other endpoint answers 403 until they set their own. Changing a
+password stops every other session of theirs at once.
+
+**Who did what.** Sign-ins, failed sign-ins, plan approvals, user changes, connection changes, purchase orders and
+dispatch confirmations are written to `audit_log` and shown to an admin under Integrations, *Who did what*.
+
+**Keeping the model current.** Sales arriving from the ERP lengthen the history but do not retrain anything by
+themselves. *Retrain on current history* on the Demand forecast page, `POST /forecast/dataset/retrain`, or
+`RETRAIN_EVERY_DAYS` does the retrain. In every case the new model replaces the current one only if it is not more
+than 10% less accurate on the most recent 28 days, and the previous model and dataset are backed up first.
+
+### Still to do before a live deployment
+
+- Connect your real WMS and ERP and trial them; the HTTP clients are tested against mocked systems only.
+- Host it with HTTPS, PostgreSQL backups and monitoring. That is server work, not code.
+- One server only: the model, the forecast cache and the retrain job live in one process. Running several copies
+  behind a load balancer needs shared storage and a job queue.

@@ -33,7 +33,7 @@ async def create_user(db: AsyncSession, data: UserCreate) -> AppUser:
     if (await db.execute(select(AppUser).where(func.lower(AppUser.username) == data.username.lower()))).scalars().first():
         raise ConflictError(f"Username {data.username} is already taken")
     user = AppUser(username=data.username, name=data.name.strip(), password_hash=hash_password(data.password),
-                   role=data.role, warehouse_id=data.warehouse_id)
+                   role=data.role, warehouse_id=data.warehouse_id, must_change_password=True)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -56,6 +56,7 @@ async def update_user(db: AsyncSession, user_id: int, data: UserUpdate, acting: 
         user.name = fields["name"].strip()
     if fields.get("password"):
         user.password_hash = hash_password(fields["password"])
+        user.must_change_password = True      # a password someone else chose is temporary
     if "active" in fields and fields["active"] is not None:
         user.active = fields["active"]
     user.role, user.warehouse_id = role, wh
@@ -71,11 +72,12 @@ async def seed_users(db: AsyncSession) -> int:
     if (await db.execute(select(func.count()).select_from(AppUser))).scalar():
         return 0
     pw = hash_password(settings.demo_password)
-    rows = [AppUser(username="admin", name="Planning Admin", password_hash=pw, role=ROLE_ADMIN),
-            AppUser(username="viewer", name="Operations Viewer", password_hash=pw, role=ROLE_VIEWER)]
+    must = settings.app_env == "production"      # a shared starting password is only acceptable until first use
+    rows = [AppUser(username="admin", name="Planning Admin", password_hash=pw, role=ROLE_ADMIN, must_change_password=must),
+            AppUser(username="viewer", name="Operations Viewer", password_hash=pw, role=ROLE_VIEWER, must_change_password=must)]
     for wh in sorted(await _warehouses()):
         rows.append(AppUser(username=f"planner.{wh.lower()}", name=f"{wh} Planner", password_hash=pw,
-                            role=ROLE_PLANNER, warehouse_id=wh))
+                            role=ROLE_PLANNER, warehouse_id=wh, must_change_password=must))
     db.add_all(rows)
     await db.commit()
     return len(rows)

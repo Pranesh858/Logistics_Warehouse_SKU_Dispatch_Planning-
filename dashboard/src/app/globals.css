@@ -1,34 +1,62 @@
+@import '@fontsource-variable/ibm-plex-sans';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens. One calm blue as the only brand colour; everything else is neutral. */
+/* Dispatch Planner — a control room, not a brochure.
+   The navigation is dark so the working area reads as a lit surface. Colour carries one meaning only:
+   the state of something. Nothing decorative is coloured, and no status is told by colour alone. */
 @layer base {
   :root {
-    --background: 220 17% 97%;
-    --foreground: 221 39% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 221 39% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 221 39% 11%;
+    /* chrome: the navy the brand already uses, taken down to its darkest usable steps */
+    --chrome: 215 50% 12%;
+    --chrome-raised: 215 42% 17%;
+    --chrome-line: 215 34% 24%;
+    --chrome-text: 213 30% 76%;
 
-    --primary: 216 64% 34%;
+    /* working surfaces */
+    --paper: 0 0% 100%;
+    --field: 216 20% 97%;
+    --rule: 216 20% 90%;
+    --rule-strong: 215 17% 80%;
+
+    /* text */
+    --ink-900: 219 46% 9%;
+    --ink-700: 219 30% 22%;
+    --ink-500: 218 17% 43%;
+    --ink-400: 217 15% 58%;
+
+    /* the one brand colour: actions and the current place */
+    --accent: 214 64% 34%;
+    --accent-hi: 214 62% 27%;
+    --accent-soft: 214 60% 95%;
+
+    --radius: 0.3125rem;
+
+    /* shadcn-era aliases kept so the primitives keep working */
+    --background: var(--field);
+    --foreground: var(--ink-900);
+    --card: var(--paper);
+    --card-foreground: var(--ink-900);
+    --popover: var(--paper);
+    --popover-foreground: var(--ink-900);
+    --primary: var(--accent);
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 216 66% 27%;
-    --primary-soft: 214 62% 96%;
-    --primary-muted: 213 60% 90%;
-
-    --secondary: 221 39% 11%;
+    --primary-hover: var(--accent-hi);
+    --primary-soft: var(--accent-soft);
+    --primary-muted: 214 55% 88%;
+    --secondary: var(--ink-900);
     --secondary-foreground: 0 0% 100%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --destructive: 4 86% 58%;
+    --muted: var(--field);
+    --muted-foreground: var(--ink-500);
+    --destructive: 6 61% 47%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 220 13% 91%;
-    --input: 220 13% 86%;
-    --ring: 216 64% 34%;
-    --radius: 0.75rem;
+    --border: var(--rule);
+    --input: var(--rule-strong);
+    --ring: var(--accent);
   }
 }
 
@@ -38,24 +66,45 @@
   }
 
   html, body {
-    @apply bg-background text-foreground;
+    @apply bg-surface-page text-ink-body;
     margin: 0;
     padding: 0;
-    overflow-x: hidden;
     min-height: 100vh;
-    font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Figures line up in columns everywhere; a planner compares them down the page, not across. */
+  table, .tabular, input[type='number'] {
+    font-variant-numeric: tabular-nums;
   }
 
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 1px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: hsl(var(--accent-soft));
+    color: hsl(var(--ink-900));
+  }
+}
+
+@layer components {
+  /* A row's state is a bar on its leading edge plus a word — never colour alone. */
+  .state-rail {
+    box-shadow: inset 3px 0 0 0 var(--rail, transparent);
   }
 }
 
 @layer utilities {
   .scrollbar-hide { overflow: auto; }
+
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

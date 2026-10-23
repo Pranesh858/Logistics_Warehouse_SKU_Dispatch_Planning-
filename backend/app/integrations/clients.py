@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.config import settings
+from app.integrations import config_store
 from app.modules.forecast.runtime import runtime
 
 
@@ -115,6 +116,22 @@ class SimulatedPurchasing:
 
 
 # --------------------------------------------------------------------------- real systems over HTTP
+def remap(rows: list[dict], mapping: dict) -> list[dict]:
+    """Renames incoming fields, so a system that calls a SKU "sku" still works: {"product_id": "sku"}.
+    Fields that are not mentioned are passed through unchanged."""
+    if not mapping:
+        return rows
+    out = []
+    for r in rows:
+        row = dict(r)
+        for ours, theirs in mapping.items():
+            if theirs and theirs in r:
+                row[ours] = r[theirs]
+        out.append(row)
+    return out
+
+
+
 def _headers(key: str) -> dict:
     return {"Authorization": f"Bearer {key}"} if key else {}
 
@@ -137,39 +154,39 @@ async def _get(url: str, key: str, params: dict | None = None, transport: httpx.
 class HttpInventory:
     """GET {WMS_BASE_URL}/inventory -> [{product_id, warehouse_id, stock_on_hand}]  (or {"items": [...]})"""
 
-    def __init__(self, base: str, key: str, transport=None):
-        self.base, self.key, self.transport = base.rstrip("/"), key, transport
+    def __init__(self, base: str, key: str, transport=None, mapping: dict | None = None):
+        self.base, self.key, self.transport, self.mapping = base.rstrip("/"), key, transport, mapping or {}
 
     async def fetch(self) -> list[dict]:
-        return await _get(f"{self.base}/inventory", self.key, transport=self.transport)
+        return remap(await _get(f"{self.base}/inventory", self.key, transport=self.transport), self.mapping)
 
 
 class HttpOrders:
     """GET {ERP_BASE_URL}/orders?since=<ISO time> -> [{order_id, order_timestamp, customer_id, customer_tier,
     product_id, warehouse_id, qty_ordered, due_date}]"""
 
-    def __init__(self, base: str, key: str, transport=None):
-        self.base, self.key, self.transport = base.rstrip("/"), key, transport
+    def __init__(self, base: str, key: str, transport=None, mapping: dict | None = None):
+        self.base, self.key, self.transport, self.mapping = base.rstrip("/"), key, transport, mapping or {}
 
     async def fetch(self, since: datetime | None) -> list[dict]:
-        return await _get(f"{self.base}/orders", self.key, {"since": since.isoformat()} if since else None, self.transport)
+        return remap(await _get(f"{self.base}/orders", self.key, {"since": since.isoformat()} if since else None, self.transport), self.mapping)
 
 
 class HttpSales:
     """GET {ERP_BASE_URL}/sales?since=<YYYY-MM-DD> -> rows in the dataset-upload format (see README)."""
 
-    def __init__(self, base: str, key: str, transport=None):
-        self.base, self.key, self.transport = base.rstrip("/"), key, transport
+    def __init__(self, base: str, key: str, transport=None, mapping: dict | None = None):
+        self.base, self.key, self.transport, self.mapping = base.rstrip("/"), key, transport, mapping or {}
 
     async def fetch(self, since: date | None) -> list[dict]:
-        return await _get(f"{self.base}/sales", self.key, {"since": since.isoformat()} if since else None, self.transport)
+        return remap(await _get(f"{self.base}/sales", self.key, {"since": since.isoformat()} if since else None, self.transport), self.mapping)
 
 
 class HttpPurchasing:
     """POST {ERP_BASE_URL}/purchase-orders  {po_ref, warehouse_id, lines:[{product_id, units}]} -> {"reference": "..."}"""
 
-    def __init__(self, base: str, key: str, transport=None):
-        self.base, self.key, self.transport = base.rstrip("/"), key, transport
+    def __init__(self, base: str, key: str, transport=None, mapping: dict | None = None):
+        self.base, self.key, self.transport, self.mapping = base.rstrip("/"), key, transport, mapping or {}
 
     async def create(self, po: dict) -> tuple[bool, str | None, str | None]:
         try:
@@ -203,33 +220,63 @@ def reset_simulators() -> None:
     _sims.clear()
 
 
-def _pick(feed: str, live_cls, base: str, key: str, sim_cls):
+def _pick(feed: str, live_cls, sim_cls):
     if feed in _overrides:
         return _overrides[feed]
+    base = config_store.base_url(feed)
     if base:
-        return live_cls(base, key)
+        return live_cls(base, config_store.api_key(feed), mapping=config_store.field_map(feed))
     return _sims.setdefault(feed, sim_cls())
 
 
 def inventory_source() -> InventorySource:
-    return _pick("inventory", HttpInventory, settings.wms_base_url, settings.wms_api_key, SimulatedInventory)
+    return _pick("inventory", HttpInventory, SimulatedInventory)
 
 
 def order_source() -> OrderSource:
-    return _pick("orders", HttpOrders, settings.erp_base_url, settings.erp_api_key, SimulatedOrders)
+    return _pick("orders", HttpOrders, SimulatedOrders)
 
 
 def sales_source() -> SalesSource:
-    return _pick("sales", HttpSales, settings.erp_base_url, settings.erp_api_key, SimulatedSales)
+    return _pick("sales", HttpSales, SimulatedSales)
 
 
 def purchase_sink() -> PurchaseSink:
-    return _pick("purchasing", HttpPurchasing, settings.erp_base_url, settings.erp_api_key, SimulatedPurchasing)
+    return _pick("purchasing", HttpPurchasing, SimulatedPurchasing)
 
 
 def mode(feed: str) -> str:
-    """'live' when a real system is configured (or forced by a test), else 'simulator'."""
+    """'live' when a real system is connected (or forced by a test), else 'simulator'."""
     if feed in _overrides:
         return "live"
-    base = settings.wms_base_url if feed == "inventory" else settings.erp_base_url
-    return "live" if base else "simulator"
+    return "live" if config_store.base_url(feed) else "simulator"
+
+
+# --------------------------------------------------------------------------- testing a connection
+SHAPE = {
+    "inventory": ("product_id", "warehouse_id", "stock_on_hand"),
+    "orders": ("order_id", "product_id", "warehouse_id", "qty_ordered", "due_date", "customer_tier"),
+    "sales": ("product_id", "warehouse_id", "date", "units_sold", "stock_on_hand", "price"),
+}
+
+
+async def probe(feed: str, base: str, key: str, mapping: dict) -> dict:
+    """Calls the system once and reports what came back, without changing anything. Used by 'Test connection'."""
+    cls = {"inventory": HttpInventory, "orders": HttpOrders, "sales": HttpSales}[feed]
+    client = cls(base, key, mapping=mapping)
+    try:
+        rows = await (client.fetch() if feed == "inventory" else client.fetch(None))
+    except IntegrationError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if not isinstance(rows, list):
+        return {"ok": False, "error": "The answer was not a list of records"}
+    if not rows:
+        return {"ok": True, "rows": 0, "missing": [], "sample": None,
+                "note": "The system answered but sent no records. That may be correct if there is nothing new."}
+    first = rows[0] if isinstance(rows[0], dict) else {}
+    missing = [f for f in SHAPE[feed] if f not in first]
+    return {"ok": not missing, "rows": len(rows), "missing": missing, "sample": first,
+            "note": "Every field was found." if not missing else
+                    "Some fields are missing. Use the field names box to say what this system calls them."}

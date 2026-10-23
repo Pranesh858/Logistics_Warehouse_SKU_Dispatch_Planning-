@@ -1,7 +1,7 @@
 """Who is calling, and which warehouse they may touch."""
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.deps import DB
@@ -12,7 +12,11 @@ from app.shared.exceptions import ForbiddenError
 _bearer = HTTPBearer(auto_error=False, description="Token from POST /api/v1/auth/login")
 
 
-async def get_current_user(db: DB, creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]) -> AppUser:
+ALWAYS_ALLOWED = ("/auth/me", "/auth/change-password")
+
+
+async def get_current_user(request: Request, db: DB,
+                           creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]) -> AppUser:
     unauthorised = HTTPException(status.HTTP_401_UNAUTHORIZED, "Sign in to continue", headers={"WWW-Authenticate": "Bearer"})
     if creds is None:
         raise unauthorised
@@ -26,6 +30,9 @@ async def get_current_user(db: DB, creds: Annotated[HTTPAuthorizationCredentials
     if claims.get("pv") != password_fingerprint(user.password_hash):   # the password changed since this token was issued
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Your password was changed. Sign in again.",
                             headers={"WWW-Authenticate": "Bearer"})
+    if user.must_change_password and not request.url.path.endswith(ALWAYS_ALLOWED):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Choose your own password before using the planner. Open Account to set one.")
     return user
 
 

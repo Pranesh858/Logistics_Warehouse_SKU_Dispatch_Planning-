@@ -1,221 +1,176 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useCan } from '@/features/auth/store';
+import { Metric, MetricBand } from '@/components/ui/metric';
+import { Notice } from '@/components/ui/section';
+import { Empty, Table, TableFrame, TD, TH, THead, TR } from '@/components/ui/table';
+import { PageBody, PageHeader } from '@/components/layout/PageHeader';
+import { WarehouseSwitch } from '@/features/auth/components/WarehouseSwitch';
+import { useCan, useScope } from '@/features/auth/store';
 import { errorMessage } from '@/lib/api';
 import { useRunForecast, useSkus } from '../hooks';
 import type { ForecastTotal } from '../types';
 import { DatasetUpload } from './DatasetUpload';
 import { ExplainPanel } from './ExplainPanel';
-import { OrdersPanel } from './OrdersPanel';
 import { ReportButtons } from './ReportButtons';
 
-const fmt = (n: number | null | undefined, d = 0) =>
-  n === null || n === undefined ? '-' : n.toLocaleString(undefined, { maximumFractionDigits: d });
+const n = (v: number | null | undefined, d = 0) =>
+  v === null || v === undefined ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: d });
 
-const PAGE = 25;
+const PAGE = 40;
 
+/** What each SKU is expected to sell, with the range around it and what is driving it. */
 export function ForecastPage() {
   const can = useCan();
-  const [tab, setTab] = useState<'forecast' | 'orders'>('forecast');
+  const scope = useScope();
   const skus = useSkus();
   const run = useRunForecast();
 
   const [days, setDays] = useState(7);
-  const [warehouse, setWarehouse] = useState('');
   const [product, setProduct] = useState('');
   const [shown, setShown] = useState(PAGE);
-  const [selected, setSelected] = useState<{ product_id: number; warehouse_id: string } | null>(null);
+  const [picked, setPicked] = useState<{ product_id: number; warehouse_id: string } | null>(null);
+  const [showData, setShowData] = useState(false);
 
-  const warehouses = useMemo(() => Array.from(new Set((skus.data ?? []).map((s) => s.warehouse_id))).sort(), [skus.data]);
   const stock = useMemo(() => {
     const m = new Map<string, number>();
     (skus.data ?? []).forEach((s) => m.set(`${s.product_id}|${s.warehouse_id}`, s.stock_on_hand));
     return m;
   }, [skus.data]);
 
-  const submit = () => {
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
     setShown(PAGE);
-    setSelected(null);
+    setPicked(null);
     run.mutate({
       days,
-      product_ids: product.trim() ? product.split(',').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n)) : undefined,
-      warehouse_ids: warehouse ? [warehouse] : undefined,
+      product_ids: product.trim()
+        ? product.split(',').map((p) => Number(p.trim())).filter((x) => Number.isFinite(x))
+        : undefined,
+      warehouse_ids: scope ? [scope] : undefined,
     });
   };
-
-  const reportDays = (run.data?.days ?? days) > 14 ? 28 : (run.data?.days ?? days) > 7 ? 14 : 7;   // reports come in 7, 14 or 28 days
 
   const rows: ForecastTotal[] = useMemo(
     () => [...(run.data?.totals ?? [])].sort((a, b) => b.total_predicted_units - a.total_predicted_units),
     [run.data],
   );
+  const reportDays = days > 14 ? 28 : days > 7 ? 14 : 7;
+  const short = rows.filter((r) => {
+    const on = stock.get(`${r.product_id}|${r.warehouse_id}`);
+    return on !== undefined && on < r.total_predicted_units;
+  }).length;
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8 space-y-6">
-      <header>
-        <h1 className="text-[1.5rem] font-semibold tracking-tight text-ink-heading">Demand forecast</h1>
-        <p className="text-body text-ink-muted max-w-2xl">
-          How many units of each SKU every warehouse is expected to sell over the next few days, with a likely range.
-          Dispatch planning has its own page; the two meet only in its stock outlook.
-        </p>
-      </header>
+    <>
+      <PageHeader
+        title="Demand forecast"
+        lead={`Expected units per SKU and warehouse${scope ? ` at ${scope}` : ''}, with the range around each one`}
+        actions={
+          <>
+            <WarehouseSwitch />
+            {can.admin && (
+              <Button variant="outline" size="sm" aria-expanded={showData} onClick={() => setShowData((v) => !v)}>
+                {showData ? 'Hide data tools' : 'Data and model'}
+              </Button>
+            )}
+            {run.data && <ReportButtons kind="forecast" days={reportDays} warehouse={scope ?? undefined} pdfLabel="Summary" xlsxLabel="Full list" />}
+          </>
+        }
+      >
+        <form className="flex flex-wrap items-center gap-2" onSubmit={submit}>
+          <label className="flex items-center gap-1.5 text-label text-ink-muted">
+            Days ahead
+            <input type="number" min={1} max={28} value={days} onChange={(e) => setDays(Math.min(28, Math.max(1, Number(e.target.value) || 1)))}
+              className="h-comp-sm w-16 rounded-md border border-input bg-surface px-2 text-caption text-ink-heading hover:border-ink-subtle" />
+          </label>
+          <label className="flex items-center gap-1.5 text-label text-ink-muted">
+            SKU ids
+            <input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="all"
+              className="h-comp-sm w-40 rounded-md border border-input bg-surface px-2 text-caption text-ink-heading placeholder:text-ink-subtle hover:border-ink-subtle" />
+          </label>
+          <Button type="submit" size="sm" disabled={run.isPending || skus.isLoading}>
+            {run.isPending ? 'Forecasting…' : 'Run forecast'}
+          </Button>
+          {run.data && <span className="ml-auto text-caption text-ink-subtle">{rows.length} SKU-warehouse lines</span>}
+        </form>
+      </PageHeader>
 
-      {can.admin && <DatasetUpload />}
+      <PageBody className="space-y-4">
+        {can.admin && showData && <DatasetUpload />}
+        {skus.isError && <Notice>{errorMessage(skus.error)}</Notice>}
+        {run.isError && <Notice>{errorMessage(run.error)}</Notice>}
 
-      <div role="tablist" aria-label="Forecast views" className="inline-flex overflow-hidden rounded-lg border border-input">
-        {([['forecast', 'Demand forecast'], ['orders', 'Units to order']] as const).map(([id, label]) => (
-          <button key={id} role="tab" type="button" aria-selected={tab === id} onClick={() => setTab(id)}
-            className={`h-comp-md px-5 text-body-sm font-medium ${tab === id ? 'bg-primary text-primary-foreground' : 'bg-surface text-ink-body hover:bg-surface-subtle'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'orders' && (
-        <>
-          {warehouses.length > 1 && (
-            <label className="flex items-center gap-2 text-label text-ink-muted">Warehouse
-              <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)} className="h-9 rounded-md border border-input bg-surface px-2 text-body-sm text-ink-body">
-                <option value="">All warehouses</option>
-                {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-            </label>
-          )}
-          <OrdersPanel warehouse={warehouse} />
-        </>
-      )}
-
-      {tab === 'forecast' && (<>
-
-      <Card>
-        <CardContent className="pt-6">
-          <form
-            className="flex flex-wrap items-end gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit();
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="days" className="block">Days ahead</Label>
-              <Input id="days" type="number" min={1} max={28} value={days} className="w-28"
-                onChange={(e) => setDays(Math.min(28, Math.max(1, Number(e.target.value) || 1)))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wh" className="block">Warehouse</Label>
-              <select id="wh" value={warehouse} onChange={(e) => setWarehouse(e.target.value)}
-                className="h-comp-md rounded-lg border border-input bg-surface px-3 text-body-sm">
-                <option value="">All warehouses</option>
-                {warehouses.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="sku" className="block">SKU ids (optional)</Label>
-              <Input id="sku" placeholder="e.g. 10, 25, 38" value={product} onChange={(e) => setProduct(e.target.value)} className="w-52" />
-            </div>
-            <Button type="submit" disabled={run.isPending || skus.isLoading}>
-              {run.isPending ? 'Forecasting…' : 'Run forecast'}
-            </Button>
-          </form>
-          {skus.isError && <p role="alert" className="mt-3 text-body-sm text-danger-text">{errorMessage(skus.error)}</p>}
-          {run.isError && <p role="alert" className="mt-3 text-body-sm text-danger-text">{errorMessage(run.error)}</p>}
-        </CardContent>
-      </Card>
-
-      {!run.data && !run.isPending && (
-        <Card><CardContent className="py-10 text-center text-ink-muted text-body">
-          Choose how far ahead to look and press <strong>Run forecast</strong>. Leave warehouse and SKU empty to forecast the whole catalogue.
-        </CardContent></Card>
-      )}
-
-      {run.data && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-body-sm text-ink-muted">Reports cover the next {reportDays} days{warehouse ? ` at ${warehouse}` : ''}.</p>
-            <ReportButtons kind="forecast" days={reportDays} warehouse={warehouse}
-              pdfLabel="Forecast report (PDF)" xlsxLabel="Forecast list (Excel)" />
+        {!run.data && !run.isPending && (
+          <div className="rounded-md border border-dashed border-surface-rule bg-surface px-6 py-12 text-center">
+            <p className="text-body text-ink-body">Choose how far ahead to look, then run the forecast.</p>
+            <p className="mt-1 text-caption text-ink-muted">Leave SKU ids empty to cover the whole catalogue.</p>
+            <Button className="mt-4" size="sm" onClick={() => submit()} disabled={skus.isLoading}>Run forecast</Button>
           </div>
+        )}
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Stat label={`Total demand, next ${run.data.days} days`} value={fmt(run.data.grand_total)} sub="units, selected scope" />
-            <Stat label="Typical error, one day ahead" value={`${run.data.model.mape_pct}%`} sub={`WAPE ${run.data.model.wape}, tested on past data`} />
-            <Stat label="SKU x warehouse pairs" value={fmt(rows.length)} sub={`${run.data.model.objective} model, ${fmt(run.data.model.training_rows)} training rows`} />
-          </div>
+        {run.data && (
+          <>
+            <MetricBand>
+              <Metric label={`Demand, next ${run.data.days} days`} value={n(run.data.grand_total)} note="units in this scope" />
+              <Metric label="Will not cover demand" value={n(short)} note="SKUs with less stock than forecast" tone={short > 0 ? 'warn' : 'neutral'} />
+              <Metric label="Typical error" value={`${run.data.model.mape_pct}%`} note={`one day ahead, tested on past sales`} />
+              <Metric label="Trained on" value={n(run.data.model.training_rows)} note={`rows, ${run.data.model.objective} model`} />
+            </MetricBand>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Forecast by SKU and warehouse</CardTitle>
-              <CardDescription>Highest demand first. Select a row to see what is driving it. The range covers 80% of past outcomes.</CardDescription>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-body-sm">
-                <thead>
-                  <tr className="text-left text-label text-ink-muted border-b border-surface-line">
-                    <th className="py-2 pr-4">SKU</th><th className="pr-4">Warehouse</th>
-                    <th className="pr-4 text-right">Forecast</th><th className="pr-4 text-right">Likely range</th>
-                    <th className="pr-4 text-right">On hand</th><th className="text-right">Cover (days)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, shown).map((r) => {
-                    const on = stock.get(`${r.product_id}|${r.warehouse_id}`);
-                    const perDay = r.total_predicted_units / r.forecast_days;
-                    const cover = on !== undefined && perDay > 0 ? on / perDay : null;
-                    const active = selected?.product_id === r.product_id && selected.warehouse_id === r.warehouse_id;
-                    return (
-                      <tr key={`${r.product_id}-${r.warehouse_id}`}
-                        className={`border-b border-surface-line cursor-pointer hover:bg-surface-subtle ${active ? 'bg-primary-soft' : ''}`}
-                        onClick={() => setSelected({ product_id: r.product_id, warehouse_id: r.warehouse_id })}>
-                        <td className="py-2 pr-4 font-medium text-ink-heading">
-                          <button type="button" className="underline-offset-2 hover:underline focus-visible:underline"
-                            onClick={(e) => { e.stopPropagation(); setSelected({ product_id: r.product_id, warehouse_id: r.warehouse_id }); }}>
-                            #{r.product_id}
-                          </button>
-                        </td>
-                        <td className="pr-4">{r.warehouse_id} <span className="text-ink-subtle">{r.city}</span></td>
-                        <td className="pr-4 text-right tabular-nums">{fmt(r.total_predicted_units, 1)}</td>
-                        <td className="pr-4 text-right tabular-nums text-ink-muted">{fmt(r.total_low, 1)} to {fmt(r.total_high, 1)}</td>
-                        <td className="pr-4 text-right tabular-nums">{fmt(on)}</td>
-                        <td className="text-right tabular-nums">
-                          {cover === null ? '-' : cover < r.forecast_days ? <Badge variant="danger">{fmt(cover, 1)}</Badge> : fmt(cover, 1)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {shown < rows.length && (
-                <div className="pt-4 text-center">
-                  <Button variant="outline" size="sm" onClick={() => setShown((n) => n + PAGE)}>
-                    Show {Math.min(PAGE, rows.length - shown)} more of {rows.length - shown} remaining
-                  </Button>
-                </div>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+              <TableFrame>
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH>SKU</TH><TH>Warehouse</TH>
+                      <TH align="right">Forecast</TH><TH align="right">Likely range</TH>
+                      <TH align="right">On hand</TH><TH align="right">Cover</TH>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {rows.slice(0, shown).map((r) => {
+                      const on = stock.get(`${r.product_id}|${r.warehouse_id}`);
+                      const perDay = r.total_predicted_units / r.forecast_days;
+                      const cover = on !== undefined && perDay > 0 ? on / perDay : null;
+                      const tight = cover !== null && cover < r.forecast_days;
+                      const active = picked?.product_id === r.product_id && picked?.warehouse_id === r.warehouse_id;
+                      return (
+                        <TR key={`${r.product_id}-${r.warehouse_id}`} rail={tight ? 'warn' : 'none'} selected={active}
+                          onClick={() => setPicked({ product_id: r.product_id, warehouse_id: r.warehouse_id })}>
+                          <TD mono strong>#{r.product_id}</TD>
+                          <TD className="whitespace-nowrap">{r.warehouse_id} <span className="text-ink-subtle">{r.city}</span></TD>
+                          <TD align="right" strong>{n(r.total_predicted_units, 1)}</TD>
+                          <TD align="right" muted>{n(r.total_low, 0)} – {n(r.total_high, 0)}</TD>
+                          <TD align="right">{n(on)}</TD>
+                          <TD align="right" className={tight ? 'text-warning-text' : undefined}>
+                            {cover === null ? '—' : `${n(cover, 1)} d`}
+                          </TD>
+                        </TR>
+                      );
+                    })}
+                    {rows.length === 0 && <Empty colSpan={6}>No SKUs in this scope.</Empty>}
+                  </tbody>
+                </Table>
+                {shown < rows.length && (
+                  <div className="border-t border-surface-line px-3 py-2 text-center">
+                    <Button variant="ghost" size="sm" onClick={() => setShown((v) => v + PAGE)}>Show more ({rows.length - shown} left)</Button>
+                  </div>
+                )}
+              </TableFrame>
+
+              {picked && (
+                <ExplainPanel product_id={picked.product_id} warehouse_id={picked.warehouse_id} days={run.data.days}
+                  onClose={() => setPicked(null)} />
               )}
-            </CardContent>
-          </Card>
-
-          {selected && <ExplainPanel product_id={selected.product_id} warehouse_id={selected.warehouse_id} days={run.data.days} />}
-        </>
-      )}
-      </>)}
-    </div>
-  );
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <p className="text-label text-ink-muted">{label}</p>
-        <p className="text-h1 text-ink-heading tabular-nums">{value}</p>
-        <p className="text-caption text-ink-subtle">{sub}</p>
-      </CardContent>
-    </Card>
+            </div>
+            <p className="text-caption text-ink-subtle">
+              The range covers 80% of past outcomes at this horizon. Select a row to see what is driving its forecast.
+            </p>
+          </>
+        )}
+      </PageBody>
+    </>
   );
 }

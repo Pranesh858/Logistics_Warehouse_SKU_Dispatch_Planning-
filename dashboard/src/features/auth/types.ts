@@ -7,6 +7,7 @@ export interface AuthUser {
   role: Role;
   warehouse_id: string | null;
   active: boolean;
+  must_change_password?: boolean;
   created_at: string;
   last_login_at: string | null;
 }

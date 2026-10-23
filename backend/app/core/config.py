@@ -13,10 +13,15 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production-use-a-long-random-value"      # signs login tokens: set a long random value in .env for any real use
     debug: bool = False
 
+    app_env: str = "development"                    # set to "production" to turn on the start-up safety checks
+    auto_create_tables: bool = True                 # development and tests; in production use the Alembic migrations
+
     # --- login ---
     access_token_minutes: int = 480                 # a login lasts one working day
     password_iterations: int = 200_000              # PBKDF2 rounds for stored passwords
     seed_users_on_startup: bool = True              # create the demo accounts when no user exists yet
+    login_max_failures: int = 10                    # wrong passwords allowed before the account pauses
+    login_lockout_minutes: int = 15
     demo_password: str = "Dispatch@123"             # password of every demo account (change it after first login)
 
     # --- forecasting model (artifacts ship with the repo) ---
@@ -58,6 +63,7 @@ class Settings(BaseSettings):
     order_sync_minutes: int = 0
     sales_sync_minutes: int = 0
     simulated_orders_per_sync: int = 5
+    retrain_every_days: int = 0             # retrain on the grown sales history every N days (0 = only when asked)
     simulate_sales: bool = False            # demo only: let the simulator invent a day of sales (it writes into the real history file)
 
 
