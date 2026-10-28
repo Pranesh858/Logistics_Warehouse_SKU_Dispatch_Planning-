@@ -9,19 +9,21 @@ import { PageBody, PageHeader } from '@/components/layout/PageHeader';
 import { errorMessage } from '@/lib/api';
 import { WarehouseSwitch } from '@/features/auth/components/WarehouseSwitch';
 import { useAuth, useCan, useScope } from '@/features/auth/store';
-import { useCurrentPlan, usePlan, usePlanHistory, useRecalculate, useRetryExports } from '../hooks';
+import { useCurrentPlan, usePlan, usePlanHistory, useRecalculate, useRetryExports, useTransfers } from '../hooks';
 import type { Plan } from '../types';
 import { ApprovePanel } from './ApprovePanel';
 import { fmt, fmtDate, PLAN_LABEL, TRIGGER_LABEL } from './format';
 import { OutlookTable } from './OutlookTable';
 import { PlanTable } from './PlanTable';
+import { TransfersTable, transferHint } from './TransfersTable';
 import { TruckPlan } from './TruckPlan';
 import { TruckSetup } from './TruckSetup';
 
-type Tab = 'orders' | 'trucks' | 'setup' | 'outlook' | 'history';
+type Tab = 'orders' | 'trucks' | 'setup' | 'outlook' | 'transfers' | 'history';
 
 const TABS: [Tab, string][] = [
-  ['orders', 'Orders'], ['trucks', 'Truck loading'], ['setup', 'Trucks'], ['outlook', 'Stock outlook'], ['history', 'History'],
+  ['orders', 'Orders'], ['trucks', 'Truck loading'], ['setup', 'Trucks'], ['outlook', 'Stock outlook'],
+  ['transfers', 'Transfers'], ['history', 'History'],
 ];
 
 const PLAN_TONE = (status: Plan['status']) =>
@@ -38,6 +40,7 @@ export function DispatchPage() {
   const [tab, setTab] = useState<Tab>('orders');
   const [viewId, setViewId] = useState<number | undefined>();
   const viewed = usePlan(viewId);
+  const transfers = useTransfers();
 
   const plan: Plan | null | undefined = viewId !== undefined ? viewed.data : current.data;
   const isCurrent = viewId === undefined || viewId === current.data?.id;
@@ -67,6 +70,7 @@ export function DispatchPage() {
   const waiting = plan.status === 'RECOMMENDED';
   const live = waiting && isCurrent && can.edit;
   const sent = plan.lines.filter((l) => l.export_status === 'SENT').length;
+  const hint = transferHint(transfers.data);
 
   return (
     <>
@@ -114,6 +118,12 @@ export function DispatchPage() {
             <Button size="sm" variant="outline" onClick={() => setTab('trucks')}>See truck loading</Button>
           </div>
         )}
+        {waiting && hint && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary-muted bg-primary-soft px-3 py-2 text-body-sm text-primary">
+            <span>{hint}</span>
+            <Button size="sm" variant="outline" onClick={() => setTab('transfers')}>See transfers</Button>
+          </div>
+        )}
 
         <MetricBand className="lg:grid-cols-6">
           <Metric label="Orders" value={fmt(s.orders)} note={`${s.overridden + s.rejected} changed by hand`} />
@@ -145,6 +155,7 @@ export function DispatchPage() {
         {tab === 'trucks' && <TruckPlan key={plan.id} plan={plan} editable={live} />}
         {tab === 'setup' && <TruckSetup readOnly={!can.edit} warehouses={Array.from(new Set(plan.lines.map((l) => l.warehouse_id)))} />}
         {tab === 'outlook' && <OutlookTable planId={plan.id} />}
+        {tab === 'transfers' && <TransfersTable editable={can.edit} />}
         {tab === 'history' && (
           <ul className="divide-y divide-surface-line overflow-hidden rounded-md border border-surface-line bg-surface">
             {(history.data ?? []).map((p) => (

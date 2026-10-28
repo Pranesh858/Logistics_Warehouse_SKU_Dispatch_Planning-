@@ -133,3 +133,143 @@ def exception_type(status: str, at_risk: bool) -> str | None:
     if at_risk:
         return "At-Risk Order"
     return None
+
+
+# ---------------------------------------------------------------- cross-warehouse transfers
+#
+# The allocation above fills every order from its own warehouse, because that is where the goods physically
+# are. When WH02 is short of a SKU that WH05 has sitting spare, the order is reported BACKORDERED even though
+# the company as a whole holds enough stock.
+#
+# A transfer cannot fix that order *today*: moving goods between warehouses takes transit time. So transfers
+# are proposals attached to the plan, not a silent re-allocation. Each proposal is only raised when the goods
+# would arrive before the order they are meant to serve is due, and only out of stock the donor warehouse can
+# genuinely spare - free stock, after its own commitments and allocations, less a cover buffer for its own
+# demand. A planner approves it; approval is what moves the stock.
+
+TRANSFER_STATUSES = ("PROPOSED", "IN_TRANSIT", "RECEIVED", "CANCELLED")
+SHORT_STATUSES = ("BACKORDERED", "PARTIAL", "HELD", "WAVE_OVERFLOW")
+
+
+def free_stock(plan: pd.DataFrame, stock: pd.DataFrame, committed: dict | None = None,
+               outbound: dict | None = None) -> dict:
+    """Units left on the shelf per SKU x warehouse once this plan is approved.
+
+    Mirrors the engine's own `remaining`: shelf stock, less what the ledger already holds, less what this plan
+    is about to allocate. COMMITTED lines are excluded because the ledger already accounts for them - counting
+    both would subtract the same units twice. `outbound` is stock promised to transfers already in flight.
+    """
+    committed, outbound = committed or {}, outbound or {}
+    alloc: dict = {}
+    if len(plan):
+        fresh = plan[plan["status"] != "COMMITTED"]
+        alloc = fresh.groupby(["product_id", "warehouse_id"])["qty_allocated"].sum().to_dict()
+    out = {}
+    for r in stock.itertuples():
+        key = (int(r.product_id), r.warehouse_id)
+        free = float(r.stock_on_hand) - committed.get(key, 0.0) - alloc.get(key, 0.0) - outbound.get(key, 0.0)
+        out[key] = max(free, 0.0)
+    return out
+
+
+def shortages(plan: pd.DataFrame) -> dict:
+    """Unmet demand per SKU x warehouse as a list of (due_date, units), earliest first.
+
+    BLOCKED lines are left out: a SKU on hold is not short of stock, it is not allowed to move.
+    """
+    out: dict = {}
+    if not len(plan):
+        return out
+    short = plan[(plan["qty_short"] > 0) & (plan["status"].isin(SHORT_STATUSES))]
+    for r in short.sort_values("due_date").itertuples():
+        out.setdefault((int(r.product_id), r.warehouse_id), []).append((r.due_date, float(r.qty_short)))
+    return out
+
+
+def propose_transfers(plan: pd.DataFrame, stock: pd.DataFrame, *, committed: dict | None = None,
+                      daily_demand: dict | None = None, lanes: dict | None = None, default_days: int = 1,
+                      keep_days: int = 7, min_units: float = 5.0, now=None, blocked: set | None = None,
+                      outbound: dict | None = None, incoming: dict | None = None) -> pd.DataFrame:
+    """Transfers that would clear a shortage, out of stock another warehouse can spare.
+
+    committed     units the ledger holds, per (product_id, warehouse_id)
+    daily_demand  recent average units sold per day, per (product_id, warehouse_id); sets the donor's buffer
+    lanes         transit days per (from_warehouse, to_warehouse); anything unlisted uses default_days
+    keep_days     days of the donor's own demand left untouched, so a transfer never causes the next stockout
+    min_units     proposals smaller than this are not worth a lorry and are dropped
+    blocked       (product_id, warehouse_id) pairs on hold: never a donor and never a destination
+    outbound      units already promised to transfers in flight, per (product_id, warehouse_id)
+    incoming      units already on their way in on another transfer, per (product_id, warehouse_id); they
+                  cover part of the shortage, so counting them stops the same transfer being raised twice
+    """
+    if not len(plan) or not len(stock):
+        return pd.DataFrame(columns=["product_id", "from_warehouse_id", "to_warehouse_id", "qty", "transit_days",
+                                     "eta", "need", "short_orders", "earliest_due", "reason"])
+    now = pd.Timestamp(now) if now is not None else pd.to_datetime(plan["order_timestamp"]).max()
+    blocked, lanes = blocked or set(), lanes or {}
+    daily_demand = daily_demand or {}
+    free = free_stock(plan, stock, committed, outbound)
+    want = shortages(plan)
+    for key, units in (incoming or {}).items():      # already coming: retire that much need, earliest due first
+        left, rest = float(units), []
+        for due, qty in want.get(key, []):
+            covered = min(qty, left)
+            left -= covered
+            if qty - covered > 0:
+                rest.append((due, qty - covered))
+        if key in want:
+            want[key] = rest
+
+    spare = {}
+    for key, units in free.items():
+        if key in blocked:
+            continue
+        buffer = daily_demand.get(key, 0.0) * keep_days
+        left = units - buffer
+        if left > 0:
+            spare[key] = left
+
+    rows = []
+    for (pid, dest), needs in sorted(want.items()):
+        if (pid, dest) in blocked:
+            continue
+        donors = [(wh, qty) for (p, wh), qty in spare.items() if p == pid and wh != dest]
+        if not donors:
+            continue
+        # nearest first, then whoever can give most: a shorter lane makes more orders reachable in time
+        donors.sort(key=lambda d: (lanes.get((d[0], dest), default_days), -d[1]))
+        open_needs = list(needs)                       # [(due_date, units)], earliest due first
+        for donor, available in donors:
+            if available < min_units or not open_needs:
+                continue
+            days = int(lanes.get((donor, dest), default_days))
+            eta = now + pd.Timedelta(days=days)
+            reachable = [(due, q) for due, q in open_needs if pd.Timestamp(due) >= eta]
+            servable = sum(q for _, q in reachable)
+            if servable <= 0:
+                continue                               # it would arrive too late to help anything still open
+            qty = float(min(servable, available))
+            if qty < min_units:
+                continue
+            qty = round(qty, 2)
+            rows.append({
+                "product_id": pid, "from_warehouse_id": donor, "to_warehouse_id": dest, "qty": qty,
+                "transit_days": days, "eta": eta, "need": round(servable, 2), "short_orders": len(reachable),
+                "earliest_due": min(due for due, _ in reachable),
+                "reason": (f"{round(servable):g} units short on {len(reachable)} order(s) at {dest}; "
+                           f"{donor} can spare {round(available):g} and is {days} day(s) away"),
+            })
+            spare[(pid, donor)] = available - qty      # this donor cannot give the same units twice
+            taken = qty                                # retire the needs this proposal covers, earliest first
+            rest = []
+            for due, q in open_needs:
+                if taken > 0 and pd.Timestamp(due) >= eta:
+                    used = min(q, taken)
+                    taken -= used
+                    if q - used > 0:
+                        rest.append((due, q - used))
+                else:
+                    rest.append((due, q))
+            open_needs = rest
+    return pd.DataFrame(rows, columns=["product_id", "from_warehouse_id", "to_warehouse_id", "qty", "transit_days",
+                                       "eta", "need", "short_orders", "earliest_due", "reason"])

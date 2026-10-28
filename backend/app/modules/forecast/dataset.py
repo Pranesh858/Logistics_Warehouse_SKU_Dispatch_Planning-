@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.core.config import settings
-from app.ml import train
+from app.ml import backtest, train
 from app.modules.forecast.runtime import runtime
 from app.shared.exceptions import BadRequestError
 
@@ -85,9 +85,29 @@ def _retrain_on_history() -> dict:
     backup = train.promote(model, raw, frame, comparison)
     runtime.reload()
     meta = runtime.meta
-    return {"promoted": True, "comparison": comparison, "backup": backup, "left_out": 0,
-            "products": meta["products"], "warehouses": meta["warehouses"],
-            "history_to": meta["training_date_range"][1], "training_rows": meta["training_rows"], "new_product_ids": []}
+    result = {"promoted": True, "comparison": comparison, "backup": backup, "left_out": 0,
+              "products": meta["products"], "warehouses": meta["warehouses"],
+              "history_to": meta["training_date_range"][1], "training_rows": meta["training_rows"],
+              "new_product_ids": []}
+    _rescore(raw, result)
+    return result
+
+
+def _rescore(raw, result: dict) -> None:
+    """Re-measure the new model so the accuracy page stops describing the old one.
+
+    The model is already live at this point: the figures are a description of it, not a gate on it, so a
+    failure here is recorded on the result and does not undo the retrain.
+    """
+    if not settings.refresh_accuracy_after_retrain:
+        return
+    try:
+        _set(step="Re-scoring the forecast for the accuracy page", progress=95)
+        kpis = backtest.refresh(raw)
+        result["accuracy"] = kpis
+    except Exception as exc:  # noqa: BLE001
+        result["accuracy_error"] = str(exc)
+        print(f"[accuracy] could not re-score after the retrain: {exc}", flush=True)
 
 
 def start_retrain(on_done, reason: str = "manual") -> dict:
@@ -181,6 +201,7 @@ def _run(force: bool, on_done):
             "history_to": meta["training_date_range"][1], "training_rows": meta["training_rows"],
             "new_product_ids": _state["preview"].get("new_product_ids", []),
         }
+        _rescore(merged, result)
         _staged_path().unlink(missing_ok=True)
         _set(state="done", step="Done", progress=100, result=result)
     except Exception as exc:  # shown to the admin; the live model was not replaced unless promote finished

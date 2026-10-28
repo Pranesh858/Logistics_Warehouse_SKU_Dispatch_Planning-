@@ -29,9 +29,14 @@ class Settings(BaseSettings):
     model_metadata_path: str = str(BASE_DIR / "app/ml/artifacts/model_metadata.json")
     intervals_path: str = str(BASE_DIR / "app/ml/artifacts/forecast_intervals.json")
     backtest_path: str = str(BASE_DIR / "app/ml/artifacts/backtest.json")   # predicted vs actual on past data
+    accuracy_target_mape_pct: float = 20.0     # the BRD target the accuracy page is judged against
+    refresh_accuracy_after_retrain: bool = True   # re-score the forecast when a new model is promoted
     # Sales history CSV (~37 MB, NOT committed to git). Put it at data/ or point this elsewhere.
     retrain_estimators: int = 300              # trees in a retrained model (lower = faster, used by tests)
     dataset_path: str = str(BASE_DIR / "data/quick_commerce_with_events_clean.csv")
+    # Shipped with the repo (~280 KB, gzipped): the last 120 days of the same history, all 300 SKUs and
+    # 6 warehouses. Used automatically when the file above is absent, so a fresh clone starts without it.
+    sample_dataset_path: str = str(BASE_DIR / "data/sample_sales_history.csv.gz")
 
     # --- dispatch planning ---
     seed_orders_path: str = str(BASE_DIR / "data/seed_orders.csv")
@@ -44,6 +49,28 @@ class Settings(BaseSettings):
     forecast_horizon_days: int = 7
     default_lead_time_days: int = 3            # days between ordering a SKU and it arriving, unless set per SKU
     warm_forecast_on_startup: bool = True      # precompute the 28-day forecast in the background after start
+
+    # --- alerts ---
+    # In-app alerts always work and need nothing set. The two channels below are how an installation pushes
+    # them to where it already watches things; both stay off until configured.
+    alerts_enabled: bool = True
+    alert_sweep_minutes: int = 10               # how often the rules are re-checked; 0 turns the sweep off
+    alert_webhook_url: str = ""                 # a POST of each new alert as JSON (Slack, Teams, PagerDuty, ...)
+    alert_webhook_key: str = ""                 # sent as X-Alert-Key, if the receiver wants one
+    alert_email_to: str = ""                    # who gets the email; needs the SMTP settings below
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True                   # STARTTLS on the normal port
+    smtp_use_ssl: bool = False                  # implicit TLS instead (usually port 465)
+
+    # --- cross-warehouse stock transfers ---
+    propose_transfers: bool = True             # suggest moving stock from a warehouse that can spare it
+    default_transfer_days: int = 1             # transit time between two warehouses, unless a lane says otherwise
+    transfer_keep_days: int = 7                # days of the donor's own demand never given away
+    min_transfer_units: float = 5.0            # anything smaller is not worth moving
 
     # --- WMS / ERP ---
     # Empty = built-in simulator (BRD phase uses synthetic data). Set to a base URL to POST approved

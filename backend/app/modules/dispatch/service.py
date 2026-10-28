@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.dispatch import engine, packing
+from app.modules.dispatch import engine, packing, transfers
 from app.modules.dispatch.models import (
     PLAN_EXPORTED, PLAN_NOTHING, PLAN_PARTIAL, PLAN_RECOMMENDED, PLAN_SUPERSEDED,
     BlockedSku, ExportLog, LedgerEntry, Order, Plan, PlanLine, Truck, TruckLoad,
@@ -172,6 +172,12 @@ async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | N
     await _repack(db, plan, manual_trucks)
     await db.commit()
     await db.refresh(plan)
+    # Shortages this plan reports may be coverable from another warehouse. Proposals only; nothing moves
+    # until a planner approves one, and a failure here must not cost us the plan.
+    try:
+        await transfers.refresh_proposals(db, plan)
+    except Exception as exc:                 # noqa: BLE001
+        print(f"[transfers] could not refresh proposals: {exc}", flush=True)
     return plan
 
 

@@ -3,7 +3,7 @@ import hmac
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,6 +134,38 @@ async def retry_po(po_id: int, user: Planner, db: AsyncSession = Depends(get_db)
     if po is not None:
         ensure_warehouse(user, po.warehouse_id)
     return service.po_out(await service.retry_purchase_order(db, po_id))
+
+
+# ---- stock typed in by a person: a stock count, a goods-in, a correction ---------------------------------------------
+class StockCountItem(BaseModel):
+    product_id: int
+    warehouse_id: str = Field(min_length=1, max_length=10)
+    stock_on_hand: float = Field(ge=0)
+
+
+class StockCountIn(BaseModel):
+    items: list[StockCountItem] = Field(min_length=1, max_length=500)
+    reason: str = Field(default="", max_length=200)      # kept in the audit trail, e.g. "cycle count aisle 4"
+
+
+@router.post("/stock")
+async def set_stock(body: StockCountIn, user: Planner, db: AsyncSession = Depends(get_db)):
+    """Set the units on the shelf for one or more SKUs, for a warehouse with no WMS feed.
+
+    The numbers replace what the system thought was on hand, are stored in the database (so a restart keeps
+    them) and the plan is rebuilt if anything changed. A planner can only do this for their own warehouse."""
+    items = [{"product_id": i.product_id, "warehouse_id": i.warehouse_id.strip().upper(), "stock_on_hand": i.stock_on_hand}
+             for i in body.items]
+    for it in items:
+        ensure_warehouse(user, it["warehouse_id"])
+    applied, changed, skipped = await service.apply_stock(db, items, "manual")
+    if not applied:
+        raise BadRequestError("None of those SKUs exist at that warehouse. Pick them from the list.")
+    await service._log(db, "inventory", "manual", "OK", applied,
+                       f"{applied} stock levels set by {user.username}, {changed} changed, {skipped} skipped")
+    await record(db, user, "stock_set", f"{applied} level(s), {changed} changed. {body.reason}".strip(),
+                 scope(user) or (items[0]["warehouse_id"] if len({i['warehouse_id'] for i in items}) == 1 else None))
+    return {"applied": applied, "changed": changed, "skipped": skipped}
 
 
 # ---- dispatch confirmations: what really happened to approved orders -------------------------------------------------

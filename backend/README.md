@@ -214,6 +214,16 @@ The planner never has to ask for a plan, and nothing reaches the WMS without the
 | Trucks | `GET/POST /dispatch/trucks` | List and add trucks (name, warehouse, capacity in units) |
 | Trucks | `PATCH/DELETE /dispatch/trucks/{id}` | Change a truck's name, size or on/off state; delete switches it off |
 | Trucks | `PATCH /dispatch/plans/{id}/lines/{order_id}/truck` | Put an order on a chosen truck (`truck_id: null` = let the system choose) |
+| Transfers | `GET /dispatch/transfers`, `GET /dispatch/transfers/summary` | Stock movements proposed between warehouses, and the counts |
+| Transfers | `POST /dispatch/transfers/{id}/approve` | Send the goods: the donor's stock drops now |
+| Transfers | `POST /dispatch/transfers/{id}/receive` | The goods arrived: the destination's stock rises |
+| Transfers | `POST /dispatch/transfers/{id}/cancel` | Drop a proposal, or turn a shipment back |
+| Transfers | `GET/PUT/DELETE /dispatch/transfer-lanes` | Transit time between two warehouses (admin) |
+| Alerts | `GET /alerts`, `GET /alerts/summary` | What needs a person, worst first, and the badge counts |
+| Alerts | `POST /alerts/{id}/acknowledge`, `POST /alerts/{id}/resolve` | Say somebody is on it; close one by hand with a reason |
+| Alerts | `POST /alerts/sweep` | Re-check every rule now instead of waiting for the schedule |
+| Alerts | `POST /alerts/test-delivery` | Send a test alert to every configured channel (admin) |
+| Accuracy | `GET /forecast/accuracy` | Predicted vs actual on past data, re-measured after each retrain |
 
 ### Trucks
 
@@ -292,6 +302,48 @@ its next report overwrites these figures with the authoritative ones.
 Stock semantics: the stock feed is read as physical stock on hand, and the planner holds back stock it has committed to
 approved dispatches until they are confirmed.
 
+## Getting data into the database
+
+Nothing in the planner is typed into the code: every order, stock level, plan, reservation and login is a row in the
+database, and a restart keeps all of it. What differs is how the rows get there.
+
+| Where the data comes from | How | Use it for |
+|---|---|---|
+| **Orders and stock screen** (sidebar, *Orders and stock*) | A planner types an order or a stock count. Saved to the database; the plan is rebuilt before the screen says done. `POST /dispatch/orders`, `POST /integrations/stock`. | A warehouse with no WMS or ERP, or a demo you drive by hand. |
+| **ERP / WMS pull** | `ORDER_SYNC_MINUTES`, `INVENTORY_SYNC_MINUTES`, or *Sync now* under Systems. With no URL set, a built-in simulator stands in. | A live-looking demo that moves by itself. |
+| **ERP / WMS push** | Webhooks under `/integrations/webhooks/*`, protected by `INTEGRATION_WEBHOOK_KEY`. | A real system that can call us. |
+| **Dispatch confirmations** | The WMS (or *Mark all as shipped*) says what left. Stock drops, the reservation is released. | Closing the loop. |
+
+Two things are worth knowing. Signing in only records that you signed in (and when); it does not create or change orders or stock.
+And the sales-history CSV (the demand the forecast learns from) and `model.pkl` are files, not tables. Stock typed in
+or reported by a WMS is kept in the `stock_levels` table and laid over the history's last figure on every start.
+
+**A demo that moves by itself.** Add to `.env`:
+
+```
+ORDER_SYNC_MINUTES=2        # five new simulated orders every 2 minutes
+```
+
+Leave `INVENTORY_SYNC_MINUTES=0` while you are typing stock counts: the stock simulator reports every SKU each time
+it runs, so it would overwrite your counts. Turn it on only for a fully hands-off demo.
+
+**Moving from SQLite to PostgreSQL.** On Windows, with Docker Desktop installed, from the backend folder:
+
+```
+docker compose up -d db
+```
+
+then in `.env` use the PostgreSQL line instead of the SQLite one:
+
+```
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/warehouse_dispatch_planning_allocation_backend
+```
+
+and start the backend as usual. The tables are created on first start (or run `alembic upgrade head`). The demo
+orders, trucks and accounts are seeded again because the new database is empty. Data in `demo.db` is not copied
+across; it is demo data. Stop it with `docker compose stop db`; the data stays in the `pgdata` volume until you run
+`docker compose down -v`.
+
 ## Running it for real
 
 | Setting | What it does |
@@ -313,18 +365,22 @@ database as the service.
 else works: the person is sent to Account and every other endpoint answers 403 until they set their own. Changing a
 password stops every other session of theirs at once.
 
-**Who did what.** Sign-ins, failed sign-ins, plan approvals, user changes, connection changes, purchase orders and
-dispatch confirmations are written to `audit_log` and shown to an admin under Integrations, *Who did what*.
+**Who did what.** Sign-ins, failed sign-ins, plan approvals, user changes, connection changes, purchase orders,
+dispatch confirmations, stock transfers and alert acknowledgements are written to `audit_log` and shown to an admin
+under Integrations, *Who did what*.
 
 **Keeping the model current.** Sales arriving from the ERP lengthen the history but do not retrain anything by
 themselves. *Retrain on current history* on the Demand forecast page, `POST /forecast/dataset/retrain`, or
 `RETRAIN_EVERY_DAYS` does the retrain. In every case the new model replaces the current one only if it is not more
-than 10% less accurate on the most recent 28 days, and the previous model and dataset are backed up first.
+than 10% less accurate on the most recent 28 days, and the previous model, dataset and accuracy report are
+backed up first. A promotion also re-measures the accuracy page, so its figures describe the model that is live.
 
 ### Still to do before a live deployment
 
 - Connect your real WMS and ERP and trial them; the HTTP clients are tested against mocked systems only.
-- Host it with HTTPS, PostgreSQL backups and monitoring. That is server work, not code.
+- Host it with HTTPS and PostgreSQL backups. That is server work, not code. Monitoring of the planning
+  itself is in the app now (see Alerts below) and can push to whatever you already watch; the server and
+  database still need watching separately.
 - One server only: the model, the forecast cache and the retrain job live in one process. Running several copies
   behind a load balancer needs shared storage and a job queue.
 
@@ -355,3 +411,123 @@ and forcing a holiday on changes a prediction by about 0.1%. In the data, festiv
 ordinary days, and `promotion_flag` — which is used heavily — already absorbs most of that. The change is
 still correct, and it matters for any dataset with a real festival effect, but it does not move the accuracy
 figures here.
+
+
+## Cross-warehouse stock transfers
+
+The allocation engine fills each order from its own warehouse, because that is where the goods physically
+are. That leaves a real gap: WH02 reports an order out of stock while WH05 has the same SKU sitting spare.
+
+Transfers close it as **proposals on the plan, not a silent re-allocation**. A transfer is a physical move
+that takes days, so it cannot rescue an order due this afternoon and it must not happen without a planner.
+
+    recommended plan  ->  proposals raised from the shortages it reports (nothing moves)
+    planner approves  ->  the goods leave: the donor's stock drops now, an ETA is set
+    goods arrive      ->  received: the destination's stock rises, the plan is rebuilt
+
+A proposal is only raised out of stock the donor can genuinely spare:
+
+- free stock after its own ledger commitments and its own allocations in the current plan, and
+- less `TRANSFER_KEEP_DAYS` of the donor's own recent daily demand, so a transfer never causes the next
+  stockout, and
+- only when the goods would arrive before the order they are meant to serve is due. Transit time comes from
+  the lane set under Dispatch > Transfers, or `DEFAULT_TRANSFER_DAYS`.
+
+Stock already on its way in is counted, so the same transfer is not raised again tomorrow. The spare stock
+is re-checked at the moment of approval, not trusted from when the proposal was raised.
+
+Endpoints: `GET /dispatch/transfers`, `GET /dispatch/transfers/summary`,
+`POST /dispatch/transfers/{id}/{approve|receive|cancel}`, and `GET|PUT|DELETE /dispatch/transfer-lanes`
+(lanes are admin-only). A planner sees and acts on transfers that touch their own warehouse, either end.
+
+**On this dataset it will never propose anything, and that is the data, not the code.** Every SKU in
+`quick_commerce_with_events_clean.csv` is stocked in exactly one warehouse — 300 SKUs, 300 SKU x warehouse
+pairs — so no shortage in it can be covered from anywhere else. The rules are proved by unit tests on built
+frames (`tests/test_transfers.py`); the feature starts producing proposals as soon as a SKU is stocked in
+more than one place.
+
+
+## Alerts
+
+Something that needs a person. The two things that make the list worth reading are not the raising:
+
+- **One row per problem, not per occurrence.** A stock feed failing every thirty seconds is one alert with a
+  rising count. A list nobody can read is the same as no alerts.
+- **It clears itself.** Each rule sweeps for what is wrong *now*, and anything missing from that set is
+  closed. A list that only grows gets ignored within a week, and an ignored alert is worse than none,
+  because it looks like cover.
+
+The rules (`app/modules/alerts/rules.py`), swept every `ALERT_SWEEP_MINUTES`:
+
+| Rule | Raised when |
+|---|---|
+| `sync_failed` | a WMS/ERP feed failed on its last run, so our stock or order view is going stale |
+| `stockout` | nothing free to sell, with demand forecast for it |
+| `low_cover` | it runs out before a resupply could arrive — the one that costs money |
+| `export_failed` | approved orders never reached the WMS, so stock sits reserved and unshipped |
+| `transfer_overdue` | stock left one warehouse and never arrived |
+| `retrain_rejected` | a new model was worse, or the retrain failed, so the old model is still live |
+| `retrain_done` | a new model went live (information only) |
+
+Urgency for the stock rules comes from the ordering calculation, not a stock threshold: 200 units is plenty
+of one SKU and a day and a half of another, and only the forecast and the lead time know which.
+
+**Delivery is vendor-agnostic.** In-app always works and needs nothing configured — the alert row *is* the
+in-app delivery. Beyond that:
+
+- `ALERT_WEBHOOK_URL` — a POST of the alert as JSON. Slack, Teams, PagerDuty, Opsgenie and most monitoring
+  tools accept this, so one setting covers all of them. The body carries both a `text` field (what chat
+  tools show) and the structured fields (what monitoring tools read).
+- `ALERT_EMAIL_TO` plus the `SMTP_*` settings — plain SMTP, so a company mail server or a provider both
+  work with no library to install.
+
+A new problem is pushed once, not on every repeat; a problem that comes back is pushed again. A delivery
+failure is recorded on the alert and never loses it. `POST /alerts/test-delivery` (admin) proves the
+configuration before it is needed.
+
+Acknowledging an alert says somebody is on it and does **not** hide it — the condition has not changed.
+Closing one by hand asks why, and if the problem is still real the next sweep raises it again.
+
+
+## Forecast accuracy is re-measured after a retrain
+
+The accuracy page reads one file, `app/ml/artifacts/backtest.json`. That file used to be produced once,
+offline, by a script that never reached this repository — so after a retrain the page went on showing the
+previous model's figures, which is the worst kind of wrong because it looks right.
+
+`app/ml/backtest.py` now rebuilds it from the model and history that are live. It reproduces the file that
+shipped with the repo exactly — all nine KPIs identical — and takes about 30 seconds.
+
+The measurement is deliberately honest about what a forecast is:
+
+- the model is retrained up to each cut-off date, so it has never seen the days it is scored on;
+- the forecast runs recursively, the way the application forecasts the future — day two is predicted from
+  day one's *prediction*, not from what was really sold;
+- four cut-offs 14 days apart, each scored over the next 14 days, so the windows do not overlap and one
+  unusual fortnight cannot carry the whole figure.
+
+`backtest.json` is backed up and rolled back with the model it describes (`train.ARTIFACTS`): a report left
+behind by a different model reads as a measurement when it is a leftover. Set
+`REFRESH_ACCURACY_AFTER_RETRAIN=false` to skip the re-scoring; the page then says when it was last measured,
+so a stale figure is at least visibly stale.
+
+
+## Frontend tests
+
+The dashboard has Vitest and React Testing Library (`npm test`, or `npm run test:watch`). They cover the
+places where a break would be silent rather than loud:
+
+- which pages and actions each role is offered (the server enforces it; the UI must not offer a button that
+  will come back 403, or widen a planner past their own warehouse);
+- the allocation table — every engine outcome shown in words, and the override, which must make a person say
+  why before it will save;
+- transfers — the right action for the stage a transfer is at, since approving one moves real stock;
+- alerts — worst first, acknowledging does not hide a problem, closing asks why;
+- `errorMessage`, which every error banner in the app depends on.
+
+Run both suites:
+
+```bash
+cd backend  && pytest -q      # 147 tests
+cd dashboard && npm test      # 85 tests
+```

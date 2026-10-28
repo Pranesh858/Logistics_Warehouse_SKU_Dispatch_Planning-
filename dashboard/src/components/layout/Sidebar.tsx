@@ -4,20 +4,23 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, ClipboardCheck, LineChart, LogOut, Plug, ShoppingCart, Truck, Users, X,
+  Activity, Bell, ClipboardCheck, LineChart, LogOut, PackagePlus, Plug, ShoppingCart, Truck, Users, X,
 } from 'lucide-react';
+import { useAlertSummary } from '@/features/alerts/hooks';
 import { useAuth } from '@/features/auth/store';
 import { ROLE_LABEL } from '@/features/auth/types';
 import { cn } from '@/lib/utils';
 
-type Item = { href: string; label: string; icon: React.ReactNode; admin?: boolean };
+type Item = { href: string; label: string; icon: React.ReactNode; admin?: boolean; edit?: boolean; badge?: 'alerts' };
 
 const WORK: Item[] = [
   { href: '/', label: 'Today', icon: <ClipboardCheck className="h-4 w-4" /> },
   { href: '/dispatch', label: 'Dispatch', icon: <Truck className="h-4 w-4" /> },
+  { href: '/entry', label: 'Orders and stock', icon: <PackagePlus className="h-4 w-4" />, edit: true },
   { href: '/ordering', label: 'Ordering', icon: <ShoppingCart className="h-4 w-4" /> },
   { href: '/forecast', label: 'Forecast', icon: <LineChart className="h-4 w-4" /> },
   { href: '/kpi', label: 'Accuracy', icon: <Activity className="h-4 w-4" /> },
+  { href: '/alerts', label: 'Alerts', icon: <Bell className="h-4 w-4" />, badge: 'alerts' },
 ];
 
 const SETUP: Item[] = [
@@ -33,6 +36,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const signOut = useAuth((s) => s.signOut);
   const leave = () => { signOut(); qc.clear(); };
   const setup = SETUP.filter((i) => !i.admin || user?.role === 'admin');
+  const work = WORK.filter((i) => !i.edit || user?.role !== 'viewer');
 
   return (
     <div className="flex h-full flex-col bg-chrome text-chrome-text">
@@ -50,7 +54,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav aria-label="Main" className="flex-1 overflow-y-auto px-2 py-3">
-        <Group items={WORK} pathname={pathname} onNavigate={onNavigate} />
+        <Group items={work} pathname={pathname} onNavigate={onNavigate} />
         <p className="px-2 pb-1.5 pt-5 text-micro font-medium text-white/35">Setup</p>
         <Group items={setup} pathname={pathname} onNavigate={onNavigate} />
       </nav>
@@ -98,10 +102,35 @@ function Group({ items, pathname, onNavigate }: { items: Item[]; pathname: strin
             >
               <span className={active ? 'text-white' : 'text-white/45'}>{item.icon}</span>
               {item.label}
+              {item.badge === 'alerts' && <AlertCount />}
             </Link>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * How many problems are waiting, on the way in.
+ *
+ * The count sits in the navigation rather than on the alerts page, because somebody who has to open a page
+ * to find out whether anything is wrong will not open it. Red when something is costing money now, amber
+ * when something is about to.
+ */
+function AlertCount() {
+  const { data } = useAlertSummary();
+  if (!data || data.total === 0) return null;
+  const urgent = data.critical > 0;
+  return (
+    <span
+      aria-label={`${data.total} alert${data.total === 1 ? '' : 's'} need attention`}
+      className={cn(
+        'ml-auto min-w-[1.25rem] rounded-pill px-1.5 py-0.5 text-center text-micro font-semibold tabular',
+        urgent ? 'bg-danger text-white' : 'bg-warning text-white',
+      )}
+    >
+      {data.total > 99 ? '99+' : data.total}
+    </span>
   );
 }

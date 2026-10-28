@@ -13,14 +13,57 @@ proxies M5 forced us to approximate:
     in (add_indian_calendar.py), built the same way as M5's own event
     columns so the holiday feature logic is unchanged.
 """
+import sys
+from pathlib import Path
+
 import pandas as pd
 
 from app.core.config import settings
 
+_sample_notice_shown = False
+
+
+def resolve_dataset_path(path=None) -> Path:
+    """Where to read the sales history from: the full file if it is there, else the sample in the repo.
+
+    The full history is ~37 MB and deliberately kept out of git, so a fresh clone does not have it. Falling
+    back to the committed sample means the project starts straight after cloning instead of dying at startup
+    on a missing file. Writers still write to `settings.dataset_path`, so the first merge promotes the
+    history to the full path.
+    """
+    if path:
+        return Path(path)
+    full = Path(settings.dataset_path)
+    if full.exists():
+        return full
+    sample = Path(settings.sample_dataset_path)
+    if sample.exists():
+        return sample
+    raise FileNotFoundError(
+        "No sales history found.\n"
+        f"  Looked for the full history at: {full}\n"
+        f"  and the bundled sample at:      {sample}\n\n"
+        "The full history is not committed to git. Copy quick_commerce_with_events_clean.csv into "
+        f"{full.parent}, or point DATASET_PATH in .env at wherever you keep it. "
+        "See README, section 'Sales history'."
+    )
+
+
+def using_sample_dataset() -> bool:
+    """True when the forecast is reading the bundled 120-day sample instead of the full history."""
+    return not Path(settings.dataset_path).exists() and Path(settings.sample_dataset_path).exists()
+
 
 def load_data(path=None):
-    path = path or settings.dataset_path
-    df = pd.read_csv(path, parse_dates=["date"])
+    global _sample_notice_shown
+    resolved = resolve_dataset_path(path)
+    if path is None and using_sample_dataset() and not _sample_notice_shown:
+        _sample_notice_shown = True
+        print(f"[data] Full sales history not found; reading the bundled sample {resolved.name} "
+              f"(300 SKUs x 6 warehouses, 120 days). Forecasts and KPIs cover that window only. "
+              f"Put quick_commerce_with_events_clean.csv in {resolved.parent} for the full three years.",
+              file=sys.stderr, flush=True)
+    df = pd.read_csv(resolved, parse_dates=["date"])
     df = df.sort_values(["product_id", "warehouse_id", "date"]).reset_index(drop=True)
     return df
 

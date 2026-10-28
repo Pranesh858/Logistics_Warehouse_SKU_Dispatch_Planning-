@@ -150,3 +150,13 @@ class TruckOut(BaseModel):
 
 class TruckMoveIn(BaseModel):
     truck_id: int | None = None      # null = let the system choose again
+
+
+class TransferCancelIn(BaseModel):
+    reason: str = Field(default="", max_length=500)
+
+
+class TransferLaneIn(BaseModel):
+    from_warehouse_id: str = Field(min_length=1, max_length=10)
+    to_warehouse_id: str = Field(min_length=1, max_length=10)
+    transit_days: int = Field(ge=0, le=30)

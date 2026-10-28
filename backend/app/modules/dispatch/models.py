@@ -142,3 +142,52 @@ class ExportLog(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# Transfer lifecycle:  PROPOSED -> (planner approves) -> IN_TRANSIT -> RECEIVED
+#                      PROPOSED | IN_TRANSIT -> CANCELLED
+# Approval is what moves the stock: the donor's figure drops when the goods leave and the destination's
+# rises when they arrive, so the same units are never promised in two places at once.
+TRANSFER_PROPOSED = "PROPOSED"
+TRANSFER_IN_TRANSIT = "IN_TRANSIT"
+TRANSFER_RECEIVED = "RECEIVED"
+TRANSFER_CANCELLED = "CANCELLED"
+
+
+class StockTransfer(Base):
+    """Stock moving from a warehouse that can spare it to one that is short."""
+
+    __tablename__ = "stock_transfers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_ref: Mapped[str] = mapped_column(String(40), unique=True)
+    product_id: Mapped[int] = mapped_column(Integer, index=True)
+    from_warehouse_id: Mapped[str] = mapped_column(String(10), index=True)
+    to_warehouse_id: Mapped[str] = mapped_column(String(10), index=True)
+    qty: Mapped[float] = mapped_column(Float)
+    transit_days: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(12), default=TRANSFER_PROPOSED, index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    short_orders: Mapped[int] = mapped_column(Integer, default=0)
+    earliest_due: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    eta: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    plan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # the plan whose shortage raised it
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    approved_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    received_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TransferLane(Base):
+    """How long goods take between two warehouses. Anything not listed uses DEFAULT_TRANSFER_DAYS."""
+
+    __tablename__ = "warehouse_transfer_lanes"
+
+    from_warehouse_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    to_warehouse_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    transit_days: Mapped[int] = mapped_column(Integer)
+    updated_by: Mapped[str] = mapped_column(String(60), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

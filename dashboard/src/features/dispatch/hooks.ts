@@ -88,3 +88,44 @@ export function useMoveToTruck(planId: number) {
     onSuccess: done,
   });
 }
+
+/** Cross-warehouse transfers: proposals raised by the plan, and the moves a planner makes on them. */
+export const useTransfers = () => {
+  const wh = useScope();
+  return useQuery({ queryKey: [...KEY, 'transfers', wh], queryFn: () => dispatchApi.transfers(wh), refetchInterval: 60_000 });
+};
+
+export const useTransferSummary = () => {
+  const wh = useScope();
+  return useQuery({ queryKey: [...KEY, 'transfer-summary', wh], queryFn: () => dispatchApi.transferSummary(wh) });
+};
+
+export const useTransferLanes = () => useQuery({ queryKey: [...KEY, 'transfer-lanes'], queryFn: dispatchApi.transferLanes });
+
+export function useApproveTransfer() {
+  const done = useInvalidate();
+  return useMutation({ mutationFn: dispatchApi.approveTransfer, onSuccess: done });
+}
+
+export function useReceiveTransfer() {
+  const done = useInvalidate();
+  return useMutation({ mutationFn: dispatchApi.receiveTransfer, onSuccess: done });
+}
+
+export function useCancelTransfer() {
+  const done = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) => dispatchApi.cancelTransfer(id, reason),
+    onSuccess: done,
+  });
+}
+
+export function useSetTransferLane() {
+  const done = useInvalidate();
+  return useMutation({ mutationFn: dispatchApi.setTransferLane, onSuccess: done });
+}
+
+export function useClearTransferLane() {
+  const done = useInvalidate();
+  return useMutation({ mutationFn: ({ from, to }: { from: string; to: string }) => dispatchApi.clearTransferLane(from, to), onSuccess: done });
+}

@@ -16,6 +16,8 @@ from app.modules.users import service as users_service
 from app.modules.users.router import router as users_router
 from app.integrations import models as _integration_models  # noqa: F401  (registers the tables)
 from app.modules.forecast import supply as _supply_models  # noqa: F401  (registers supplier_lead_times)
+from app.modules.alerts import models as _alert_models  # noqa: F401  (registers the alerts table)
+from app.modules.alerts.router import router as alerts_router
 from app.integrations import config_store as integration_config
 from app.integrations import service as integration_service
 from app.integrations.router import router as integrations_router
@@ -46,8 +48,13 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=orders.warm, daemon=True).start()
     import asyncio
     sched = asyncio.create_task(integration_service.scheduler(AsyncSessionLocal))
+    # Alerts are only worth having if they appear without anyone asking, so the rules are swept on a timer
+    # of their own rather than when somebody opens the page.
+    from app.modules.alerts import scheduler as alert_scheduler
+    alerts_task = asyncio.create_task(alert_scheduler.run(AsyncSessionLocal))
     yield
     sched.cancel()
+    alerts_task.cancel()
 
 
 app = FastAPI(
@@ -70,6 +77,7 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(forecast_router, prefix="/api/v1")
 app.include_router(dispatch_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
+app.include_router(alerts_router, prefix="/api/v1")
 
 
 @app.get("/health")

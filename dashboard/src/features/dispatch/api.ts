@@ -1,5 +1,7 @@
 import { api } from '@/lib/api';
-import type { ExportEntry, OutlookRow, Plan, PlanBrief, ReviewBody, Truck } from './types';
+import type {
+  ExportEntry, OutlookRow, Plan, PlanBrief, ReviewBody, StockTransfer, TransferLane, TransferLanes, TransferSummary, Truck,
+} from './types';
 
 /** wh = narrow to one warehouse (admins and viewers). A planner's warehouse is fixed by the server. */
 const scoped = (wh?: string | null) => (wh ? { warehouse_id: wh } : undefined);
@@ -23,4 +25,14 @@ export const dispatchApi = {
   removeTruck: (id: number) => api.delete<Truck>(`/dispatch/trucks/${id}`),
   moveToTruck: (planId: number, orderId: string, truckId: number | null) =>
     api.patch<Plan>(`/dispatch/plans/${planId}/lines/${encodeURIComponent(orderId)}/truck`, { truck_id: truckId }),
+
+  transfers: (wh?: string | null) => api.get<StockTransfer[]>('/dispatch/transfers', scoped(wh)),
+  transferSummary: (wh?: string | null) => api.get<TransferSummary>('/dispatch/transfers/summary', scoped(wh)),
+  approveTransfer: (id: number) => api.post<StockTransfer>(`/dispatch/transfers/${id}/approve`),
+  receiveTransfer: (id: number) => api.post<StockTransfer>(`/dispatch/transfers/${id}/receive`),
+  cancelTransfer: (id: number, reason: string) => api.post<StockTransfer>(`/dispatch/transfers/${id}/cancel`, { reason }),
+  transferLanes: () => api.get<TransferLanes>('/dispatch/transfer-lanes'),
+  setTransferLane: (body: { from_warehouse_id: string; to_warehouse_id: string; transit_days: number }) =>
+    api.put<TransferLane>('/dispatch/transfer-lanes', body),
+  clearTransferLane: (from: string, to: string) => api.delete<void>(`/dispatch/transfer-lanes/${from}/${to}`),
 };

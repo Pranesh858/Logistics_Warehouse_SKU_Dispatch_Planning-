@@ -175,21 +175,8 @@ async def pending_confirmations(db: AsyncSession, warehouse_id: str | None) -> l
 async def _ship_out(db: AsyncSession, taken: dict[tuple[int, str], float]) -> None:
     """Goods that have left the building are no longer on the shelf. Our stock view is physical stock, so it drops
     by what shipped. Where a WMS feed is connected its next report overwrites this with the authoritative figure."""
-    if not taken:
-        return
-    current = {(int(r.product_id), r.warehouse_id): float(r.stock_on_hand) for r in (await dispatch_service._stock()).itertuples()}
-    existing = {(r.product_id, r.warehouse_id): r for r in (await db.execute(select(StockLevel))).scalars().all()}
-    live = dict(runtime._live_stock)
-    for key, qty in taken.items():
-        left = max(0.0, current.get(key, 0.0) - qty)
-        row = existing.get(key)
-        if row is None:
-            db.add(StockLevel(product_id=key[0], warehouse_id=key[1], qty=left, source="dispatch", updated_at=datetime.now()))
-        else:
-            row.qty, row.source, row.updated_at = left, "dispatch", datetime.now()
-        live[key] = left
-    await db.commit()
-    runtime.set_live_stock(live)
+    from app.modules.dispatch import stockview
+    await stockview.apply_delta(db, {key: -qty for key, qty in taken.items()}, "dispatch")
 
 
 async def confirm_dispatch(db: AsyncSession, items: list[dict], source: str, warehouse_id: str | None = None) -> dict:

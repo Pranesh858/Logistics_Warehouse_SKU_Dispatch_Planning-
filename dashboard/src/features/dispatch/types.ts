@@ -141,3 +141,51 @@ export interface ReviewBody {
   override_qty?: number;
   override_reason?: string;
 }
+
+/** Stock moving from a warehouse that can spare it to one that is short. */
+export type TransferStatus = 'PROPOSED' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCELLED';
+
+export interface StockTransfer {
+  id: number;
+  transfer_ref: string;
+  product_id: number;
+  from_warehouse_id: string;
+  to_warehouse_id: string;
+  qty: number;
+  transit_days: number;
+  status: TransferStatus;
+  reason: string;
+  short_orders: number;
+  earliest_due: string | null;
+  eta: string | null;
+  created_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  received_by: string | null;
+  received_at: string | null;
+  cancelled_by: string | null;
+  cancel_reason: string | null;
+  overdue: boolean;
+}
+
+export interface TransferSummary {
+  proposed: number;
+  proposed_units: number;
+  in_transit: number;
+  in_transit_units: number;
+  overdue: number;
+  enabled: boolean;
+}
+
+export interface TransferLane {
+  from_warehouse_id: string;
+  to_warehouse_id: string;
+  transit_days: number;
+  updated_by: string;
+  updated_at: string | null;
+}
+
+export interface TransferLanes {
+  default_days: number;
+  lanes: TransferLane[];
+}

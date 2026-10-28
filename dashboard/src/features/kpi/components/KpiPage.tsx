@@ -24,6 +24,8 @@ const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0
 const n1 = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const signed = (n: number) => `${n > 0 ? '+' : ''}${n1(n)}%`;
 const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const measured = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /** How close the forecast has been. One chart by default; the rest behind buttons, each with its reading. */
 export function KpiPage() {
@@ -44,7 +46,7 @@ export function KpiPage() {
     <>
       <PageHeader
         title="Forecast accuracy"
-        lead={`${day(d.period.start)} to ${day(d.period.end)}, ${k.skus} SKUs${d.warehouse_id ? ` at ${d.warehouse_id}` : ''}, measured on weeks the model had not seen`}
+        lead={`${day(d.period.start)} to ${day(d.period.end)}, ${k.skus} SKUs${d.warehouse_id ? ` at ${d.warehouse_id}` : ''}, measured on weeks the model had not seen${d.generated_at ? ` · scored ${measured(d.generated_at)}` : ''}`}
         actions={<ReportButtons kind="accuracy" pdfLabel="Summary" xlsxLabel="Full data" />}
       />
       <PageBody className="space-y-4">

@@ -2,6 +2,7 @@ import io
 import json
 import shutil
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -52,6 +53,8 @@ def small_model(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "dataset_path", str(ds))
     monkeypatch.setattr(settings, "model_path", str(art / "model.pkl"))
     monkeypatch.setattr(settings, "model_metadata_path", str(art / "meta.json"))
+    # A promotion now re-scores the accuracy report, so that file is part of "the real files stay untouched".
+    monkeypatch.setattr(settings, "backtest_path", str(art / "backtest.json"))
     frame = train.features_from_raw(raw)
     import joblib
     joblib.dump(train.fit(frame), art / "model.pkl")
@@ -115,3 +118,47 @@ def test_short_new_sku_is_left_out(client, small_model):
     upload = make_rows([7], 10)
     prev = client.post("/api/v1/forecast/dataset/check", files={"file": ("n.csv", csv_bytes(upload), "text/csv")}).json()["preview"]
     assert prev["short_history_pairs"] and any("fewer than" in w for w in prev["warnings"])
+
+
+def test_a_promotion_re_scores_the_accuracy_report(client, small_model):
+    """The accuracy page must describe the model that is live.
+
+    It used to read a file produced once, offline: after a retrain the page kept showing the previous
+    model's figures, which is the worst sort of wrong because it looks right.
+    """
+    report = Path(settings.backtest_path)
+    report.write_text(json.dumps({"kpis": {"day_mape_pct": 99.9}, "by_sku": []}), encoding="utf-8")
+
+    new = make_rows([9], 120)
+    r = client.post("/api/v1/forecast/dataset/check",
+                    files={"file": ("new.csv", csv_bytes(new), "text/csv")})
+    assert r.status_code == 200, r.text
+    assert client.post("/api/v1/forecast/dataset/apply").status_code == 200
+    s = wait_done(client, limit=300)
+    assert s["state"] == "done", s
+
+    assert s["result"].get("accuracy"), "the retrain should report the new model's figures"
+    fresh = json.loads(report.read_text(encoding="utf-8"))
+    assert fresh["kpis"]["day_mape_pct"] != 99.9, "the stale report was left in place"
+    assert fresh["generated_at"]
+    assert fresh["kpis"]["skus"] == 4, "it was scored on the history the new model was trained on"
+    assert s["result"]["accuracy"]["day_mape_pct"] == fresh["kpis"]["day_mape_pct"]
+
+
+def test_a_rejected_retrain_leaves_the_accuracy_report_alone(client, small_model):
+    """A model that was not promoted has not changed anything, so its figures must not be published."""
+    report = Path(settings.backtest_path)
+    report.write_text(json.dumps({"kpis": {"day_mape_pct": 99.9}}), encoding="utf-8")
+    before = report.read_text(encoding="utf-8")
+
+    # Nonsense sales for a known SKU: the new model scores clearly worse and should be refused.
+    bad = make_rows([1], 120)
+    bad["units_sold"] = [5000 if i % 2 else 1 for i in range(len(bad))]
+    r = client.post("/api/v1/forecast/dataset/check",
+                    files={"file": ("bad.csv", csv_bytes(bad), "text/csv")})
+    assert r.status_code == 200, r.text
+    assert client.post("/api/v1/forecast/dataset/apply").status_code == 200
+    s = wait_done(client, limit=300)
+    if s["state"] != "rejected":
+        pytest.skip(f"the model was not rejected on this data (state={s['state']})")
+    assert report.read_text(encoding="utf-8") == before

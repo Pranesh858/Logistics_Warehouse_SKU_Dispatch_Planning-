@@ -1,11 +1,12 @@
 from fastapi import APIRouter
 
-from app.core.auth import CurrentUser, Planner, ensure_warehouse, pick_warehouse, scope
+from app.core.auth import Admin, CurrentUser, Planner, ensure_warehouse, pick_warehouse, scope
 from app.core.deps import DB
 from app.core.audit import record
-from app.modules.dispatch import service
+from app.modules.dispatch import service, transfers
 from app.modules.dispatch.schemas import (
-    ApproveIn, BlockIn, OrdersIn, PlanBrief, PlanOut, ReviewIn, TruckIn, TruckMoveIn, TruckOut, TruckUpdate,
+    ApproveIn, BlockIn, OrdersIn, PlanBrief, PlanOut, ReviewIn, TransferCancelIn, TransferLaneIn,
+    TruckIn, TruckMoveIn, TruckOut, TruckUpdate,
 )
 
 # Access rules
@@ -135,3 +136,67 @@ async def remove_truck(truck_id: int, db: DB, user: Planner):
     """Switches the truck off (old plans keep their history)."""
     ensure_warehouse(user, await service.truck_warehouse(db, truck_id))
     return await service.remove_truck(db, truck_id)
+
+
+# ----------------------------------------------------------------- cross-warehouse transfers
+#   A planner sees and acts on transfers that touch their own warehouse, as donor or as destination.
+#   Transit times between warehouses are admin settings, like supplier lead times.
+@router.get("/transfers")
+async def list_transfers(db: DB, user: CurrentUser, warehouse_id: str | None = None, status: str | None = None):
+    """Proposed and in-flight stock movements between warehouses."""
+    return await transfers.listing(db, pick_warehouse(user, warehouse_id), status)
+
+
+@router.get("/transfers/summary")
+async def transfers_summary(db: DB, user: CurrentUser, warehouse_id: str | None = None):
+    return await transfers.summary(db, pick_warehouse(user, warehouse_id))
+
+
+@router.post("/transfers/{transfer_id}/approve")
+async def approve_transfer(transfer_id: int, db: DB, user: Planner):
+    """Send the goods. The donor's stock drops now and the plan is rebuilt."""
+    out = await transfers.approve(db, transfer_id, user.username, scope(user))
+    await record(db, user, "transfer_approved",
+                 f"{out['qty']:g} units of SKU {out['product_id']} {out['from_warehouse_id']} -> "
+                 f"{out['to_warehouse_id']} (ref {out['transfer_ref']})", out["to_warehouse_id"])
+    return out
+
+
+@router.post("/transfers/{transfer_id}/receive")
+async def receive_transfer(transfer_id: int, db: DB, user: Planner):
+    """The goods arrived. The destination's stock rises and the shortage can now be filled."""
+    out = await transfers.receive(db, transfer_id, user.username, scope(user))
+    await record(db, user, "transfer_received",
+                 f"{out['qty']:g} units of SKU {out['product_id']} arrived at {out['to_warehouse_id']} "
+                 f"(ref {out['transfer_ref']})", out["to_warehouse_id"])
+    return out
+
+
+@router.post("/transfers/{transfer_id}/cancel")
+async def cancel_transfer(transfer_id: int, body: TransferCancelIn, db: DB, user: Planner):
+    """Drop a proposal, or turn a shipment back. Goods already sent go back on the donor's shelf."""
+    out = await transfers.cancel(db, transfer_id, user.username, body.reason, scope(user))
+    await record(db, user, "transfer_cancelled",
+                 f"ref {out['transfer_ref']}: {body.reason or 'no reason given'}", out["to_warehouse_id"])
+    return out
+
+
+@router.get("/transfer-lanes")
+async def transfer_lanes(db: DB, user: CurrentUser):
+    """Transit time between each pair of warehouses. Anything unlisted uses the default."""
+    return await transfers.list_lanes(db)
+
+
+@router.put("/transfer-lanes")
+async def set_transfer_lane(body: TransferLaneIn, db: DB, user: Admin):
+    out = await transfers.set_lane(db, body.from_warehouse_id, body.to_warehouse_id, body.transit_days,
+                                   user.username)
+    await record(db, user, "transfer_lane_set",
+                 f"{body.from_warehouse_id} -> {body.to_warehouse_id}: {body.transit_days} day(s)")
+    return out
+
+
+@router.delete("/transfer-lanes/{from_warehouse_id}/{to_warehouse_id}", status_code=204)
+async def clear_transfer_lane(from_warehouse_id: str, to_warehouse_id: str, db: DB, user: Admin):
+    await transfers.clear_lane(db, from_warehouse_id, to_warehouse_id)
+    await record(db, user, "transfer_lane_cleared", f"{from_warehouse_id} -> {to_warehouse_id}")

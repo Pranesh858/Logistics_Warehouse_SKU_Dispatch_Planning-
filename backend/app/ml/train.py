@@ -235,10 +235,16 @@ def backup_dir() -> Path:
     return d
 
 
+# The accuracy report describes one particular model, so it is backed up and rolled back with it. A report
+# left behind by a different model is worse than none: it reads as a measurement when it is a leftover.
+ARTIFACTS = ("model_path", "model_metadata_path", "dataset_path", "backtest_path")
+
+
 def promote(model, merged_raw: pd.DataFrame, frame: pd.DataFrame, comparison: dict) -> str:
     """Back up what is live, then write the new model, metadata and dataset."""
     dest = backup_dir()
-    for p in (settings.model_path, settings.model_metadata_path, settings.dataset_path):
+    for name in ARTIFACTS:
+        p = getattr(settings, name)
         if Path(p).exists():
             shutil.copy2(p, dest / Path(p).name)
 
@@ -267,6 +273,7 @@ def promote(model, merged_raw: pd.DataFrame, frame: pd.DataFrame, comparison: di
 
 def rollback(backup: str) -> None:
     src = Path(backup)
-    for p in (settings.model_path, settings.model_metadata_path, settings.dataset_path):
+    for name in ARTIFACTS:
+        p = getattr(settings, name)
         if (src / Path(p).name).exists():
             shutil.copy2(src / Path(p).name, p)

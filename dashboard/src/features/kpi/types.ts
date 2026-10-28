@@ -6,6 +6,8 @@ export interface Accuracy {
   origins: string[];
   period: { start: string; end: string };
   target_mape_pct: number;
+  /** When these figures were measured. Absent on a report generated before re-scoring existed. */
+  generated_at?: string;
   warehouse_id?: string;      // set when the report is cut to one warehouse (a planner's own)
   kpis: {
     day_wape: number;
