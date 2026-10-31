@@ -4,7 +4,8 @@ Truck packing (pure python, no database).
 Takes the quantities the planner would dispatch and the configured trucks, and decides which truck
 carries what. Rules:
   * a truck only loads from its own warehouse;
-  * orders are taken by priority (Premium > Standard > Basic, then earliest due date, then FIFO);
+  * orders are taken by priority (Premium > Standard > Basic, carried over from an earlier wave first,
+    then earliest due date, then FIFO);
   * an order goes whole into the first truck it fits in (trucks are tried in id order);
   * an order bigger than the largest truck of its warehouse is split across trucks;
   * what does not fit anywhere stays unassigned (and is not sent);
@@ -18,7 +19,7 @@ TIER_RANK = {"Premium": 0, "Standard": 1, "Basic": 2}
 
 def pack(trucks: list[dict], items: list[dict]) -> list[dict]:
     """trucks: id, warehouse_id, capacity.   items: order_id, warehouse_id, qty, tier, due_date, order_timestamp,
-    manual_truck_id (optional).   Returns loads: order_id, truck_id, qty, manual."""
+    manual_truck_id and carried (optional).   Returns loads: order_id, truck_id, qty, manual."""
     ordered_trucks = sorted(trucks, key=lambda t: t["id"])
     by_wh: dict[str, list[dict]] = {}
     for t in ordered_trucks:
@@ -59,4 +60,4 @@ def pack(trucks: list[dict], items: list[dict]) -> list[dict]:
 
 
 def _key(it: dict):
-    return (TIER_RANK.get(it.get("tier"), 9), it["due_date"], it["order_timestamp"], it["order_id"])
+    return (TIER_RANK.get(it.get("tier"), 9), not it.get("carried", False), it["due_date"], it["order_timestamp"], it["order_id"])

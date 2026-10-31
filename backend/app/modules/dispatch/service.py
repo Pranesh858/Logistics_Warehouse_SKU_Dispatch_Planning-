@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import locks
 from app.core.config import settings
-from app.modules.dispatch import engine, packing, transfers
+from app.modules.dispatch import engine, packing, transfers, waves
 from app.modules.dispatch.models import (
     PLAN_EXPORTED, PLAN_NOTHING, PLAN_PARTIAL, PLAN_RECOMMENDED, PLAN_SUPERSEDED,
     BlockedSku, ExportLog, LedgerEntry, Order, Plan, PlanLine, Truck, TruckLoad,
@@ -104,18 +104,26 @@ async def seed_orders(db: AsyncSession) -> int:
     return len(df)
 
 
-async def ingest_orders(db: AsyncSession, orders: list[OrderIn]) -> Plan:
+async def ingest_orders(db: AsyncSession, orders: list[OrderIn], rebuild: bool = True) -> Plan | None:
+    """Store new orders. `rebuild=False` leaves the plan alone: the orders join it at the next order sync or when
+    a planner updates it, so a stream of single orders does not produce a new plan version each."""
     df = pd.DataFrame([o.model_dump() for o in orders])
     stock = await _stock()
     try:
-        engine.validate_orders(df, set(stock["product_id"]), set(stock["warehouse_id"]))
+        engine.validate_orders(df, set(stock["product_id"]), set(stock["warehouse_id"]),
+                               stocked=set(zip(stock["product_id"], stock["warehouse_id"])))
     except ValueError as exc:
         raise BadRequestError(str(exc)) from exc
-    existing = set((await db.execute(select(Order.order_id).where(Order.order_id.in_(list(df["order_id"]))))).scalars())
+    ids = list(df["order_id"])
+    existing = set((await db.execute(select(Order.order_id).where(Order.order_id.in_(ids)))).scalars())
+    # a shipped or cancelled order is no longer open, but it must not come back as a new one
+    existing |= set((await db.execute(select(LedgerEntry.order_id).where(LedgerEntry.order_id.in_(ids)))).scalars())
     if existing:
-        raise ConflictError(f"order_id(s) already exist: {sorted(existing)[:10]}")
+        raise ConflictError(f"order_id(s) already exist or were already dispatched: {sorted(existing)[:10]}")
     db.add_all(_order_row(o) for o in orders)
     await db.commit()
+    if not rebuild:
+        return None
     return await recommend_plan(db, trigger="new_orders")
 
 
@@ -139,11 +147,25 @@ async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | N
     blocked = {(b.product_id, b.warehouse_id) for b in (await db.execute(select(BlockedSku))).scalars()}
     ledger = await _ledger_df(db)
 
-    plan_df = await asyncio.to_thread(engine.allocate, orders, stock, None, blocked, ledger)
-    bad = engine.verify_no_overallocation(plan_df, stock)
-    if len(bad):
-        raise RuntimeError(f"OVER-ALLOCATION detected for {len(bad)} SKU x warehouse pair(s); plan discarded")
-    plan_df = engine.assign_waves(plan_df, settings.wave_capacity)
+    # With dispatch waves the plan covers one wave: its own orders and those of earlier waves still open (carried
+    # over). Orders of later waves wait and hold no stock. Orders already sent stay, whatever their wave.
+    wave = waves.current()
+    if wave is not None:
+        wave_of = {r.order_id: waves.wave_of(r.order_timestamp) for r in rows}
+        sent = set(ledger["order_id"])
+        orders = orders[orders["order_id"].map(lambda o: wave_of[o].rank <= wave.rank or o in sent)].copy()
+        orders["carried"] = orders["order_id"].map(lambda o: wave_of[o].rank < wave.rank)
+
+    if orders.empty:                       # nothing for this wave yet: an empty plan still says which wave it is
+        plan_df = pd.DataFrame()
+    else:
+        plan_df = await asyncio.to_thread(engine.allocate, orders, stock, None, blocked, ledger)
+        bad = engine.verify_no_overallocation(plan_df, stock, ledger)
+        if len(bad):
+            raise RuntimeError(f"OVER-ALLOCATION detected for {len(bad)} SKU x warehouse pair(s); plan discarded")
+        if wave is not None:
+            plan_df["wave_id"] = plan_df["order_id"].map(lambda o: wave_of[o].key)
+        plan_df = engine.assign_waves(plan_df, settings.wave_capacity)
 
     # carry planner overrides from the draft being replaced
     old_draft = (await db.execute(
@@ -162,7 +184,8 @@ async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | N
         old_draft.status = PLAN_SUPERSEDED
 
     version = ((await db.execute(select(func.max(Plan.version)))).scalar() or 0) + 1
-    plan = Plan(version=version, status=PLAN_RECOMMENDED, trigger=trigger, wave_capacity=settings.wave_capacity)
+    plan = Plan(version=version, status=PLAN_RECOMMENDED, trigger=trigger, wave_capacity=settings.wave_capacity,
+                wave=wave.key if wave is not None else None)
     for r in plan_df.itertuples():
         line = PlanLine(
             order_id=r.order_id, order_timestamp=r.order_timestamp.to_pydatetime(), customer_id=r.customer_id,
@@ -206,11 +229,17 @@ async def _repack(db: AsyncSession, plan: Plan, manual: dict[str, int] | None = 
     await db.execute(delete(TruckLoad).where(TruckLoad.plan_id == plan.id))
     trucks = [dict(id=t.id, warehouse_id=t.warehouse_id, capacity=t.capacity_units) for t in await _active_trucks(db)]
     items = [dict(order_id=l.order_id, warehouse_id=l.warehouse_id, qty=_final_qty(l), tier=l.customer_tier,
-                  due_date=l.due_date, order_timestamp=l.order_timestamp, manual_truck_id=manual.get(l.order_id))
+                  due_date=l.due_date, order_timestamp=l.order_timestamp, manual_truck_id=manual.get(l.order_id),
+                  carried=_carried(plan, l))
              for l in lines if _final_qty(l) > 0]
     for ld in packing.pack(trucks, items):
         db.add(TruckLoad(plan_id=plan.id, **ld))
     await db.flush()
+
+
+def _carried(plan: Plan, line: PlanLine) -> bool:
+    """Carried over from an earlier wave and still waiting to go (an order already sent is not waiting)."""
+    return plan.wave is not None and line.wave_id != plan.wave and line.status != "COMMITTED"
 
 
 async def _repack_current(db: AsyncSession) -> None:
@@ -392,6 +421,7 @@ async def plan_view(db: AsyncSession, plan: Plan, warehouse_id: str | None = Non
             d["send_qty"] = round(sum(m.qty for m in mine), 6)
         else:
             d["send_qty"] = ledger[ln.order_id].qty_committed if ln.order_id in ledger else 0.0
+        d["carried"] = _carried(plan, ln)
         out.append(d)
     trucks_out, unassigned = _truck_view(plan, loads, truck_rows, out, await _active_trucks(db))
     if warehouse_id:
@@ -402,7 +432,28 @@ async def plan_view(db: AsyncSession, plan: Plan, warehouse_id: str | None = Non
         "id": plan.id, "version": plan.version, "status": plan.status, "trigger": plan.trigger,
         "created_at": plan.created_at, "approved_by": plan.approved_by, "approved_at": plan.approved_at,
         "summary": _summary(out), "lines": out, "trucks": trucks_out, "unassigned": unassigned,
+        "wave": await _wave_view(db, plan, out, warehouse_id),
     }
+
+
+async def _wave_view(db: AsyncSession, plan: Plan, lines: list[dict], warehouse_id: str | None) -> dict | None:
+    """Which wave the plan is for, the one after it, and the open orders that are not in the plan: those placed
+    for a later wave, and those for this wave that arrived after the plan was built (they join at the next sync)."""
+    w = waves.from_key(plan.wave)
+    if w is None:
+        return None
+    out = {**w.view(), "next": waves.following(w).view(), "carried_orders": sum(1 for l in lines if l["carried"]),
+           "later_wave_orders": 0, "new_since_plan": 0}
+    if plan.status == PLAN_RECOMMENDED:
+        in_plan = {l["order_id"] for l in lines}
+        for oid, ts, wh in (await db.execute(select(Order.order_id, Order.order_timestamp, Order.warehouse_id))).all():
+            if oid in in_plan or (warehouse_id and wh != warehouse_id):
+                continue
+            if waves.wave_of(ts).rank > w.rank:
+                out["later_wave_orders"] += 1
+            else:
+                out["new_since_plan"] += 1
+    return out
 
 
 def _truck_view(plan: Plan, loads: list[TruckLoad], truck_rows: dict, lines: list[dict], active: list[Truck]):

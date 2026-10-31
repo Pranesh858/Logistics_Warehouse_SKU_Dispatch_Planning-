@@ -18,6 +18,7 @@ import { PlanTable } from './PlanTable';
 import { TransfersTable, transferHint } from './TransfersTable';
 import { TruckPlan } from './TruckPlan';
 import { TruckSetup } from './TruckSetup';
+import { WaveStrip } from './WaveStrip';
 
 type Tab = 'orders' | 'trucks' | 'setup' | 'outlook' | 'transfers' | 'history';
 
@@ -124,6 +125,9 @@ export function DispatchPage() {
             <Button size="sm" variant="outline" onClick={() => setTab('transfers')}>See transfers</Button>
           </div>
         )}
+
+        <WaveStrip plan={plan} updating={recalc.isPending}
+          onUpdate={live ? () => recalc.mutate() : undefined} />
 
         <MetricBand className="lg:grid-cols-6">
           <Metric label="Orders" value={fmt(s.orders)} note={`${s.overridden + s.rejected} changed by hand`} />

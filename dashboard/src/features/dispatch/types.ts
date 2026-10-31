@@ -26,6 +26,7 @@ export interface PlanLine {
   truck_assignments: TruckAssignment[];
   export_status: 'SENT' | 'FAILED' | 'CONFLICT' | null;
   export_error: string | null;
+  carried?: boolean;          // from an earlier dispatch wave and still waiting to go
 }
 
 export interface TruckAssignment {
@@ -103,6 +104,23 @@ export interface Plan {
   lines: PlanLine[];
   trucks: TruckLoad[];
   unassigned: Unassigned[];
+  wave?: WaveInfo | null;     // null when dispatch waves are off
+}
+
+/** A dispatch wave: orders placed before the cut-off go out on its trucks. Times are local ISO strings. */
+export interface WaveTimes {
+  key: string;
+  name: string;
+  day: string;
+  cutoff: string;
+  departure: string;
+}
+
+export interface WaveInfo extends WaveTimes {
+  next: WaveTimes;
+  carried_orders: number;     // in this plan, carried over from an earlier wave
+  later_wave_orders: number;  // open orders placed for a later wave; not in this plan
+  new_since_plan: number;     // orders for this wave that arrived after the plan was built
 }
 
 export interface PlanBrief {

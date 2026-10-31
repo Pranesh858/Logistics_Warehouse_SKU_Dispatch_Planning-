@@ -247,7 +247,8 @@ The accounts live in a new table, `app_users`. The old unprotected sample `users
 
 The planner never has to ask for a plan, and nothing reaches the WMS without their approval.
 
-1. **Recommend (automatic).** At startup, and whenever orders arrive, a SKU is blocked/unblocked, or stock changes,
+1. **Recommend (automatic).** At startup, when orders arrive (with a scheduled order sync: once per sync), when a
+   wave's trucks leave, a SKU is blocked/unblocked, or stock changes,
    the Allocation Engine builds a new `RECOMMENDED` plan (Premium > Standard > Basic, due date, FIFO; Premium/Standard
    split, Basic held whole; blocked SKUs; wave capacity). Nothing is sent anywhere.
    The units to dispatch are then **packed into trucks** (see "Trucks" below).
@@ -289,6 +290,30 @@ The planner never has to ask for a plan, and nothing reaches the WMS without the
 | Alerts | `POST /alerts/sweep` | Re-check every rule now instead of waiting for the schedule |
 | Alerts | `POST /alerts/test-delivery` | Send a test alert to every configured channel (admin) |
 | Accuracy | `GET /forecast/accuracy` | Predicted vs actual on past data, re-measured after each retrain |
+
+### Dispatch waves
+
+The day is split into waves, each with an order cut-off and a time the trucks leave. The default, `DISPATCH_WAVES`:
+
+| Wave | Orders placed | Trucks leave |
+|---|---|---|
+| Morning | before 09:00 | 10:30 |
+| Afternoon | 09:00 to before 14:00 | 15:30 |
+
+An order placed at or after 14:00 goes to the next day's Morning wave.
+
+- **One plan per wave.** The plan is built for the first wave whose trucks have not left. It holds that wave's
+  orders and the orders of earlier waves that are still open. Orders for later waves wait: they hold no stock and
+  are shown as a count (`wave.later_wave_orders`).
+- **Carried over.** When a wave's trucks leave, the next wave's plan is built by itself. Anything the earlier wave
+  could not send (no truck space, no stock, held) is carried into it and marked `carried`. Within its tier a
+  carried order goes first, for stock and for truck space.
+- **Fewer plan versions.** Set the customer order sync to every 120 minutes (Systems > Connections, or
+  `ORDER_SYNC_MINUTES=120`). The orders are also pulled once more at each cut-off, so an order placed just before
+  it makes its wave. With a scheduled sync, orders pushed by webhook are stored but wait for the next sync, and the
+  plan shows them as `wave.new_since_plan` with an *Update plan now* button. Without a scheduled sync a push still
+  rebuilds the plan at once.
+- `DISPATCH_WAVES=` (empty) turns waves off: every open order is planned at once, as before.
 
 ### Trucks
 

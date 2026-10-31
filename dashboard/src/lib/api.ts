@@ -17,6 +17,7 @@ export function errorMessage(err: unknown): string {
     if (typeof detail === 'string') return detail;
     if (Array.isArray(detail)) return detail.map((d) => d.msg).join('; ');
     if (!err.response) return 'Cannot reach the backend. Check that it is running and NEXT_PUBLIC_API_URL is correct.';
+    if (err.response.status >= 500) return `The server ran into an error (HTTP ${err.response.status}). Try again; if it keeps happening, check the backend log.`;
   }
   return err instanceof Error ? err.message : 'Something went wrong';
 }

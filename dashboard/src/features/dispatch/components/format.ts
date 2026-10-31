@@ -6,6 +6,12 @@ export const fmt = (n: number | null | undefined, d = 0) =>
 export const fmtDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+export const fmtTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+export const fmtDay = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
 export const STATUS_LABEL: Record<string, string> = {
   FULL: 'Full', PARTIAL: 'Partial', HELD: 'Held whole', BACKORDERED: 'Out of stock',
   BLOCKED: 'Blocked SKU', WAVE_OVERFLOW: 'Over wave capacity', COMMITTED: 'Already sent',
@@ -31,4 +37,5 @@ export const TRIGGER_LABEL: Record<string, string> = {
   recalculate: 'recalculated on request',
   sku_blocked: 'rebuilt after a SKU was blocked',
   sku_unblocked: 'rebuilt after a SKU was unblocked',
+  next_wave: 'built for the next wave when the trucks left',
 };

@@ -12,7 +12,11 @@ TIER_RANK = {"Premium": 0, "Standard": 1, "Basic": 2}
 AT_RISK_HOURS = 6
 
 
-def validate_orders(orders: pd.DataFrame, known_products: set, known_warehouses: set) -> None:
+def validate_orders(orders: pd.DataFrame, known_products: set, known_warehouses: set,
+                    stocked: set | None = None) -> None:
+    """`stocked`: the (product_id, warehouse_id) pairs a warehouse carries. A warehouse takes orders only for its
+    own range, as the ERP feed already required; a product it does not carry has no history to forecast from and
+    could only ever be filled by a transfer days later. It joins the range with its first stock."""
     errors = []
     bad_p = set(orders["product_id"]) - known_products
     if bad_p:
@@ -20,6 +24,11 @@ def validate_orders(orders: pd.DataFrame, known_products: set, known_warehouses:
     bad_w = set(orders["warehouse_id"]) - known_warehouses
     if bad_w:
         errors.append(f"unknown warehouse_id(s): {sorted(bad_w)}")
+    if stocked is not None:
+        missing = sorted({(int(p), w) for p, w in zip(orders["product_id"], orders["warehouse_id"])
+                          if p not in bad_p and w not in bad_w and (p, w) not in stocked}, key=lambda x: (x[1], x[0]))
+        if missing:
+            errors.append("not stocked there: " + ", ".join(f"{w} does not stock product {p}" for p, w in missing[:10]))
     if (orders["qty_ordered"] <= 0).any():
         errors.append(f"{int((orders['qty_ordered'] <= 0).sum())} order(s) with qty_ordered <= 0")
     bad_t = set(orders["customer_tier"]) - set(TIER_RANK)
@@ -49,12 +58,14 @@ def allocate(orders: pd.DataFrame, stock: pd.DataFrame, now=None, blocked: set |
 
     orders = orders.copy()
     orders["tier_rank"] = orders["customer_tier"].map(TIER_RANK)
+    # An order carried over from an earlier wave has already waited once: within its tier it goes first.
+    orders["_fresh"] = ~orders["carried"].astype(bool) if "carried" in orders.columns else True
     rows = []
     for (pid, wh), group in orders.groupby(["product_id", "warehouse_id"]):
         full_stock, city = stock_map.get((pid, wh), (0.0, None))
         remaining = max(full_stock - committed_stock.get((pid, wh), 0.0), 0.0)
         is_blocked = (pid, wh) in blocked
-        for o in group.sort_values(["tier_rank", "due_date", "order_timestamp"]).itertuples():
+        for o in group.sort_values(["tier_rank", "_fresh", "due_date", "order_timestamp"]).itertuples():
             base = dict(order_id=o.order_id, order_timestamp=o.order_timestamp, customer_id=o.customer_id,
                         customer_tier=o.customer_tier, product_id=pid, warehouse_id=wh, city=city,
                         qty_ordered=float(o.qty_ordered), due_date=o.due_date)
@@ -93,20 +104,34 @@ def allocate(orders: pd.DataFrame, stock: pd.DataFrame, now=None, blocked: set |
     return plan.sort_values(["product_id", "warehouse_id", "_r", "due_date"]).drop(columns="_r").reset_index(drop=True)
 
 
-def verify_no_overallocation(plan: pd.DataFrame, stock: pd.DataFrame) -> pd.DataFrame:
-    alloc = plan.groupby(["product_id", "warehouse_id"])["qty_allocated"].sum().reset_index()
+def verify_no_overallocation(plan: pd.DataFrame, stock: pd.DataFrame, ledger: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Units the plan holds per SKU x warehouse must not exceed the shelf.
+
+    A COMMITTED order that the WMS has shipped holds nothing any more: its goods have left and the shelf figure
+    already shows it, which is why `allocate` hands that stock out again. Counting it here as well reported
+    over-allocation where there was none and threw the whole plan away, so it is counted as the ledger holds it.
+    """
+    held = plan["qty_allocated"]
+    if ledger is not None and len(ledger) and "qty_reserved" in ledger.columns:
+        reserved = ledger.groupby("order_id")["qty_reserved"].sum()
+        committed = plan["status"] == "COMMITTED"
+        held = held.where(~committed, plan["order_id"].map(reserved).fillna(0.0))
+    alloc = plan.assign(qty_allocated=held).groupby(["product_id", "warehouse_id"])["qty_allocated"].sum().reset_index()
     chk = alloc.merge(stock, on=["product_id", "warehouse_id"], how="left")
     return chk[chk["qty_allocated"] > chk["stock_on_hand"].fillna(0) + 1e-6]
 
 
 def assign_waves(plan: pd.DataFrame, wave_capacity: float | None = None) -> pd.DataFrame:
-    """One wave per warehouse per day. Over capacity => lowest-priority allocation is released (WAVE_OVERFLOW)."""
+    """Capacity per warehouse per wave. A `wave_id` already on the plan is the dispatch wave (see waves.py);
+    without one, each warehouse has one wave per day. Over capacity => lowest-priority allocation is released
+    (WAVE_OVERFLOW)."""
     plan = plan.copy()
-    plan["wave_id"] = plan["warehouse_id"].astype(str) + "_" + plan["order_timestamp"].dt.strftime("%Y-%m-%d")
+    if "wave_id" not in plan.columns:
+        plan["wave_id"] = plan["warehouse_id"].astype(str) + "_" + plan["order_timestamp"].dt.strftime("%Y-%m-%d")
     if wave_capacity is None:
         return plan
     plan["_r"] = plan["customer_tier"].map(TIER_RANK)
-    for _, group in plan.groupby("wave_id"):
+    for _, group in plan.groupby(["warehouse_id", "wave_id"]):
         over = group["qty_allocated"].sum() - wave_capacity
         if over <= 0:
             continue

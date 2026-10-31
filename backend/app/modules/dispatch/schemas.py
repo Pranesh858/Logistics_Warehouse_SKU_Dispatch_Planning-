@@ -81,6 +81,7 @@ class LineOut(BaseModel):
     truck_assignments: list[TruckAssignmentOut] = []
     export_status: str | None = None
     export_error: str | None = None
+    carried: bool = False          # from an earlier dispatch wave and still waiting to go
 
 
 class PlanOut(BaseModel):
@@ -95,6 +96,7 @@ class PlanOut(BaseModel):
     lines: list[LineOut]
     trucks: list[TruckLoadOut] = []
     unassigned: list[UnassignedOut] = []
+    wave: dict | None = None        # the dispatch wave this plan is for; None when waves are off
 
 
 class PlanBrief(BaseModel):

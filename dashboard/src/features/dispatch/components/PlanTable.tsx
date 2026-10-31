@@ -38,7 +38,8 @@ export function PlanTable({ plan, editable }: { plan: Plan; editable: boolean })
   const lines = useMemo(() => {
     const q = search.trim().toLowerCase();
     return plan.lines.filter((l) => {
-      if (filter === 'attention' && !(l.exception_type || l.at_risk || l.decision === 'OVERRIDDEN' || l.decision === 'REJECTED')) return false;
+      // an order carried over has already missed one wave: it needs a look as much as a shortage does
+      if (filter === 'attention' && !(l.exception_type || l.at_risk || l.carried || l.decision === 'OVERRIDDEN' || l.decision === 'REJECTED')) return false;
       if (filter === 'tosend' && !(l.send_qty > 0)) return false;
       if (tier && l.customer_tier !== tier) return false;
       if (q && !`${l.order_id} ${l.product_id} ${l.warehouse_id} ${l.customer_id}`.toLowerCase().includes(q)) return false;
@@ -100,6 +101,7 @@ export function PlanTable({ plan, editable }: { plan: Plan; editable: boolean })
                     <TD strong className="whitespace-nowrap">
                       <span className="font-mono text-caption">{l.order_id}</span>
                       {l.at_risk && <Badge variant="danger" className="ml-1.5">At risk</Badge>}
+                      {l.carried && <Badge variant="outline" className="ml-1.5" title={l.wave_id ? `Placed for the ${l.wave_id} wave` : undefined}>Carried over</Badge>}
                     </TD>
                     <TD muted>{l.customer_tier}</TD>
                     <TD className="whitespace-nowrap"><span className="font-mono text-caption">#{l.product_id}</span> <span className="text-ink-subtle">{l.warehouse_id}</span></TD>

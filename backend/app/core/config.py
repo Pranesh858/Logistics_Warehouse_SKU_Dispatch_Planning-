@@ -52,7 +52,10 @@ class Settings(BaseSettings):
     seed_trucks_on_startup: bool = True        # create sample trucks when none exist yet
     default_truck_capacity: float = 120.0      # units per sample truck
     default_trucks_per_warehouse: int = 3
-    wave_capacity: float | None = None         # max units per warehouse per day; None = no cap
+    # Dispatch waves: "Name cut-off-departure; ...". Orders placed before a wave's cut-off go out on its trucks;
+    # later ones move to the next wave. Empty = no waves: every open order is planned at once.
+    dispatch_waves: str = "Morning 09:00-10:30; Afternoon 14:00-15:30"
+    wave_capacity: float | None = None         # max units per warehouse per wave (per day without waves); None = no cap
     forecast_horizon_days: int = 7
     default_lead_time_days: int = 3            # days between ordering a SKU and it arriving, unless set per SKU
     warm_forecast_on_startup: bool = True      # precompute the 28-day forecast in the background after start

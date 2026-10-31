@@ -42,7 +42,13 @@ describe('errorMessage', () => {
   });
 
   it('falls back to the error text when there is no detail', () => {
-    expect(errorMessage(httpError(500, {}))).toBe('Request failed');
+    expect(errorMessage(httpError(400, {}))).toBe('Request failed');
+  });
+
+  it('calls a server error a server error, not an unreachable backend', () => {
+    expect(errorMessage(httpError(500, {}))).toContain('The server ran into an error (HTTP 500)');
+    const said = 'Something went wrong on the server and the request was not completed. The error is in the backend log.';
+    expect(errorMessage(httpError(500, { detail: said }))).toBe(said);
   });
 
   it('copes with something that is not an error at all', () => {

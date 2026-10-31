@@ -247,3 +247,15 @@ describe('when there is nothing to show', () => {
     expect(screen.getByText('0 of 1 orders')).toBeInTheDocument();
   });
 });
+
+describe('dispatch waves', () => {
+  it('marks an order carried over from an earlier wave, and only that one', () => {
+    render(<PlanTable plan={plan([
+      line({ order_id: 'ORD-OLD', carried: true, wave_id: '2026-11-02 Morning' }),
+      line({ order_id: 'ORD-NEW', carried: false, wave_id: '2026-11-02 Afternoon' }),
+    ])} editable />);
+    const badges = screen.getAllByText('Carried over');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute('title', 'Placed for the 2026-11-02 Morning wave');
+  });
+});

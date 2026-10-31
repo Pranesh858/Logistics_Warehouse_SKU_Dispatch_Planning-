@@ -72,6 +72,7 @@ class Plan(Base):
     status: Mapped[str] = mapped_column(String(30), index=True)
     trigger: Mapped[str] = mapped_column(String(60))          # startup / new_orders / recalculate ...
     wave_capacity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wave: Mapped[str | None] = mapped_column(String(40), nullable=True)   # e.g. "2026-10-31 Morning"; None = no waves
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

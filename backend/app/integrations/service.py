@@ -15,8 +15,9 @@ from app.integrations.models import IntegrationRun, PurchaseOrder, StockLevel
 from app.ml import train
 from app.ml.features import read_history
 from app.modules.dispatch import service as dispatch_service
+from app.modules.dispatch import waves
 from app.modules.dispatch.engine import TIER_RANK
-from app.modules.dispatch.models import LedgerEntry, Order
+from app.modules.dispatch.models import PLAN_RECOMMENDED, LedgerEntry, Order, Plan
 from app.modules.dispatch.schemas import OrderIn
 from app.modules.forecast import dataset as dataset_service
 from app.modules.forecast import orders as order_needs
@@ -73,19 +74,23 @@ async def sync_inventory(db: AsyncSession) -> IntegrationRun:
 
 
 # ------------------------------------------------------------------------------ orders
-async def add_erp_orders(db: AsyncSession, raw: list[dict]) -> tuple[int, int]:
+async def add_erp_orders(db: AsyncSession, raw: list[dict], rebuild: bool = True) -> tuple[int, int]:
     """Add new orders from the ERP. Already-known and unusable orders are skipped one by one. Returns (added, skipped).
+    `rebuild=False` stores them without a new plan; they join it at the next order sync.
 
     One batch at a time: two copies of the same order arriving together must not both pass the "already known"
     check, or the second would fail on the database's unique key instead of being skipped."""
     async with locks.named("erp-orders"):
-        return await _add_erp_orders(db, raw)
+        return await _add_erp_orders(db, raw, rebuild)
 
 
-async def _add_erp_orders(db: AsyncSession, raw: list[dict]) -> tuple[int, int]:
+async def _add_erp_orders(db: AsyncSession, raw: list[dict], rebuild: bool = True) -> tuple[int, int]:
     snap = await dispatch_service._stock()
     valid_pairs = set(zip(snap["product_id"], snap["warehouse_id"]))
+    # Known means open OR already dispatched. A shipped or cancelled order is deleted from the open orders, but the
+    # ERP keeps listing it, so checking only the open orders imported it again as a new one.
     known_ids = set((await db.execute(select(Order.order_id))).scalars().all())
+    known_ids |= set((await db.execute(select(LedgerEntry.order_id))).scalars().all())
     fresh: list[OrderIn] = []
     skipped = 0
     seen = set()
@@ -101,7 +106,7 @@ async def _add_erp_orders(db: AsyncSession, raw: list[dict]) -> tuple[int, int]:
         seen.add(o.order_id)
         fresh.append(o)
     if fresh:
-        await dispatch_service.ingest_orders(db, fresh)
+        await dispatch_service.ingest_orders(db, fresh, rebuild=rebuild)
     return len(fresh), skipped
 
 
@@ -356,14 +361,42 @@ def po_out(po: PurchaseOrder) -> dict:
 
 
 # ------------------------------------------------------------------------------ scheduler
+async def wave_tick(session_factory, since: datetime, now: datetime) -> None:
+    """What the dispatch waves need between two scheduler ticks.
+
+    * An order cut-off passed: pull the orders once more (when the order feed syncs on a schedule), so an order
+      placed just before the cut-off makes its wave even if the regular sync falls later.
+    * The plan is for a wave whose trucks have left (or was built before waves): build the next wave's plan. Orders
+      that were not sent are carried into it.
+    """
+    wave = waves.current(now)
+    if wave is None:
+        return
+    if config_store.sync_minutes("orders") > 0 and waves.cutoffs_between(since, now):
+        async with session_factory() as db:
+            await sync_orders(db)
+    async with session_factory() as db:
+        plan = (await db.execute(select(Plan).where(Plan.status == PLAN_RECOMMENDED)
+                                 .order_by(Plan.version.desc()))).scalars().first()
+        if plan is not None and plan.wave != wave.key:
+            await dispatch_service.recommend_plan(db, trigger="next_wave")
+
+
 async def scheduler(session_factory) -> None:
-    """Runs each enabled feed on its own interval. A failure is logged and the loop carries on."""
+    """Runs each enabled feed on its own interval, and the dispatch waves. A failure is logged and the loop carries on."""
     tick = 30
     last: dict[str, float] = {}
     loop = asyncio.get_running_loop()
     runners = {"inventory": sync_inventory, "orders": sync_orders, "sales": sync_sales}
+    wave_since = waves.clock()
     while True:
         now = loop.time()
+        try:
+            wave_now = waves.clock()
+            await wave_tick(session_factory, wave_since, wave_now)
+            wave_since = wave_now
+        except Exception as exc:  # noqa: BLE001
+            print(f"[waves] {exc}", flush=True)
         for feed in PULLED:
             minutes = config_store.sync_minutes(feed)
             if minutes > 0 and now - last.get(feed, now - minutes * 60 - 1) >= minutes * 60:

@@ -1,7 +1,9 @@
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core import audit as _audit  # noqa: F401  (registers the audit table)
@@ -68,6 +70,22 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def unexpected_errors(request: Request, call_next):
+    """A crash still answers with a JSON error the dashboard can read.
+
+    Left alone, an unhandled exception is turned into a 500 by the outermost layer, outside CORS, so the reply has
+    no CORS headers: the browser hides it and the dashboard can only say it cannot reach the backend. Registered
+    before CORS so that CORS wraps it and its reply carries the headers."""
+    try:
+        return await call_next(request)
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("Unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={
+            "detail": "Something went wrong on the server and the request was not completed. "
+                      "The error is in the backend log."})
+
 
 app.add_middleware(
     CORSMiddleware,
