@@ -8,7 +8,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { errorMessage } from '@/lib/api';
 import { useSaveSystem, useTestConnection } from '../hooks';
-import type { SystemSettings } from '../types';
+import type { SystemKind, SystemSettings } from '../types';
 
 const TITLE: Record<string, { name: string; what: string; feeds: { key: string; label: string }[] }> = {
   wms: {
@@ -60,20 +60,29 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
   const meta = TITLE[system];
   const save = useSaveSystem();
   const probe = useTestConnection();
+  const [kind, setKind] = useState<SystemKind>(saved.kind ?? 'generic');
   const [url, setUrl] = useState(saved.base_url);
   const [key, setKey] = useState('');
+  const [secret, setSecret] = useState('');
   const [on, setOn] = useState(saved.enabled);
   const [map, setMap] = useState(printMap(saved.field_map));
   const [mins, setMins] = useState<Record<string, number>>(saved.sync_minutes ?? {});
   const [feed, setFeed] = useState(meta.feeds[0].key);
   const [saved2, setSaved2] = useState(false);
 
+  const erpnext = kind === 'erpnext';
+  // ERPNext signs requests with a key and a secret; they are kept together as "key:secret". Half of the pair is no
+  // use, so it is caught here rather than saved and failing at the first sync.
+  const halfPair = erpnext && !!key !== !!secret;
+  const typedKey = erpnext ? (key && secret ? `${key.trim()}:${secret.trim()}` : null) : (key || null);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setSaved2(false);
+    if (halfPair) return;
     save.mutate(
-      { system, body: { base_url: url.trim(), api_key: key ? key : null, enabled: on, field_map: parseMap(map), sync_minutes: mins } },
-      { onSuccess: () => { setKey(''); setSaved2(true); } },
+      { system, body: { kind, base_url: url.trim(), api_key: typedKey, enabled: on, field_map: erpnext ? {} : parseMap(map), sync_minutes: mins } },
+      { onSuccess: () => { setKey(''); setSecret(''); setSaved2(true); } },
     );
   };
 
@@ -89,16 +98,44 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
         <Badge variant={saved.enabled ? 'success' : 'secondary'}>{saved.enabled ? 'Connected' : 'Simulator'}</Badge>
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor={`${system}-url`}>Address</Label>
-        <Input id={`${system}-url`} className="h-comp-sm" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={system === "wms" ? "https://wms.yourcompany.com/api" : "https://erp.yourcompany.com/api"} />
-      </div>
+      {system === 'erp' && (
+        <div className="space-y-1.5">
+          <Label htmlFor="erp-kind">Type of system</Label>
+          <select id="erp-kind" value={kind} onChange={(e) => setKind(e.target.value as SystemKind)}
+            className="h-comp-sm w-full rounded-md border border-input bg-surface px-2 text-body-sm text-ink-heading hover:border-ink-subtle">
+            <option value="generic">Our standard API</option>
+            <option value="erpnext">ERPNext</option>
+          </select>
+        </div>
+      )}
 
       <div className="space-y-1.5">
-        <Label htmlFor={`${system}-key`}>Access key</Label>
-        <PasswordInput id={`${system}-key`} secretName="key" className="h-comp-sm" value={key} onChange={(e) => setKey(e.target.value)}
-          placeholder={saved.has_key ? 'A key is saved. Type to replace it.' : 'Sent as a bearer token'} />
+        <Label htmlFor={`${system}-url`}>Address</Label>
+        <Input id={`${system}-url`} className="h-comp-sm" value={url} onChange={(e) => setUrl(e.target.value)}
+          placeholder={erpnext ? 'https://erp.yourcompany.com (the ERPNext site)' : system === 'wms' ? 'https://wms.yourcompany.com/api' : 'https://erp.yourcompany.com/api'} />
       </div>
+
+      {erpnext ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="erp-key">API key</Label>
+            <PasswordInput id="erp-key" secretName="key" className="h-comp-sm" value={key} onChange={(e) => setKey(e.target.value)}
+              placeholder={saved.has_key ? 'Saved. Type to replace.' : 'From User > API Access'} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="erp-secret">API secret</Label>
+            <PasswordInput id="erp-secret" secretName="secret" className="h-comp-sm" value={secret} onChange={(e) => setSecret(e.target.value)}
+              placeholder={saved.has_key ? 'Saved. Type to replace.' : 'Shown once, when the key is made'} />
+          </div>
+          {halfPair && <p role="alert" className="text-caption text-danger-text sm:col-span-2">Enter both the API key and the API secret.</p>}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label htmlFor={`${system}-key`}>Access key</Label>
+          <PasswordInput id={`${system}-key`} secretName="key" className="h-comp-sm" value={key} onChange={(e) => setKey(e.target.value)}
+            placeholder={saved.has_key ? 'A key is saved. Type to replace it.' : 'Sent as a bearer token'} />
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-4">
         {meta.feeds.map((f) => (
@@ -113,6 +150,13 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
         ))}
       </div>
 
+      {erpnext ? (
+        <p className="text-caption text-ink-muted">
+          ERPNext is read as it is: item code = product ID, warehouses named &ldquo;WH01 - &hellip;&rdquo;, customer group = Premium,
+          Standard or Basic. Customer orders and purchase orders work; sales history stays on Update sales data.
+          <code className="ml-1 font-mono">scripts/erpnext_seed.py</code> sets up a site this way.
+        </p>
+      ) : (
       <details className="text-body-sm">
         <summary className="cursor-pointer text-ink-muted">Field names, if this system calls things something else</summary>
         <textarea value={map} onChange={(e) => setMap(e.target.value)} rows={3} spellCheck={false}
@@ -120,6 +164,7 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
           placeholder={`${meta.feeds[0].key}.product_id = sku`} />
         <p className="mt-1 text-caption text-ink-muted">One per line: what we call it on the left, what they call it on the right.</p>
       </details>
+      )}
 
       <label className="flex items-center gap-2 text-caption text-ink-body">
         <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} className="h-3.5 w-3.5 accent-[#1F4B8E]" />
@@ -127,13 +172,13 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
       </label>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" size="sm" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save'}</Button>
+        <Button type="submit" size="sm" disabled={save.isPending || halfPair}>{save.isPending ? 'Saving…' : 'Save'}</Button>
         <select aria-label="Feed to test" value={feed} onChange={(e) => setFeed(e.target.value)}
           className="h-comp-sm rounded-md border border-input bg-surface px-2 text-caption text-ink-heading hover:border-ink-subtle">
           {meta.feeds.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
         </select>
         <Button type="button" size="sm" variant="outline" disabled={probe.isPending || !url.trim()}
-          onClick={() => probe.mutate({ feed, base_url: url.trim(), api_key: key || null, field_map: parseMap(map)[feed] ?? {} })}>
+          onClick={() => probe.mutate({ feed, kind, base_url: url.trim(), api_key: typedKey, field_map: erpnext ? {} : parseMap(map)[feed] ?? {} })}>
           {probe.isPending ? 'Testing…' : 'Test connection'}
         </Button>
         {saved2 && <span className="text-caption text-success-text">Saved.</span>}

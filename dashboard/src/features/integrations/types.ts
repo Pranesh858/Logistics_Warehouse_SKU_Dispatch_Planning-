@@ -20,8 +20,12 @@ export interface Run {
   at: string;
 }
 
+/** generic = the planner's own HTTP contract; erpnext = an ERPNext site (ERP only). */
+export type SystemKind = 'generic' | 'erpnext';
+
 export interface SystemSettings {
   system: 'wms' | 'erp';
+  kind?: SystemKind;
   base_url: string;
   enabled: boolean;
   has_key: boolean;
@@ -44,6 +48,7 @@ export interface IntegrationStatus {
 }
 
 export interface SystemInput {
+  kind?: SystemKind;
   base_url: string;
   api_key?: string | null;
   enabled: boolean;

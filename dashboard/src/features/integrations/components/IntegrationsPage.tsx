@@ -21,7 +21,7 @@ const n = (v: number | null | undefined) => (v ?? 0).toLocaleString();
 
 const WHAT: Record<Feed['feed'], string> = {
   inventory: 'Live stock per SKU and warehouse. Every plan and order list uses it.',
-  orders: 'New customer orders. Each one rebuilds the dispatch plan.',
+  orders: 'New customer orders. Each sync that brings some rebuilds the dispatch plan, for the wave they belong to.',
   sales: 'Daily sales added to the history the forecast learns from.',
   purchasing: 'Purchase orders raised from the ordering list, and what has arrived.',
   dispatch: 'Approved orders sent out, and what the warehouse confirms shipped.',

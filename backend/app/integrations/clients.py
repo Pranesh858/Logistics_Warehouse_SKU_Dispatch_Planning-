@@ -220,12 +220,22 @@ def reset_simulators() -> None:
     _sims.clear()
 
 
+def _live_class(feed: str, kind: str, generic_cls):
+    """The client for a real system: our generic HTTP contract, or ERPNext's own API."""
+    if kind == "erpnext":
+        from app.integrations import erpnext
+        return {"orders": erpnext.ErpNextOrders, "sales": erpnext.ErpNextSales,
+                "purchasing": erpnext.ErpNextPurchasing}.get(feed, generic_cls)
+    return generic_cls
+
+
 def _pick(feed: str, live_cls, sim_cls):
     if feed in _overrides:
         return _overrides[feed]
     base = config_store.base_url(feed)
     if base:
-        return live_cls(base, config_store.api_key(feed), mapping=config_store.field_map(feed))
+        cls = _live_class(feed, config_store.kind(feed), live_cls)
+        return cls(base, config_store.api_key(feed), mapping=config_store.field_map(feed))
     return _sims.setdefault(feed, sim_cls())
 
 
@@ -260,12 +270,17 @@ SHAPE = {
 }
 
 
-async def probe(feed: str, base: str, key: str, mapping: dict) -> dict:
+async def probe(feed: str, base: str, key: str, mapping: dict, kind: str = "generic") -> dict:
     """Calls the system once and reports what came back, without changing anything. Used by 'Test connection'."""
-    cls = {"inventory": HttpInventory, "orders": HttpOrders, "sales": HttpSales}[feed]
+    cls = _live_class(feed, kind, {"inventory": HttpInventory, "orders": HttpOrders, "sales": HttpSales}[feed])
     client = cls(base, key, mapping=mapping)
     try:
-        rows = await (client.fetch() if feed == "inventory" else client.fetch(None))
+        if feed == "inventory":
+            rows = await client.fetch()
+        elif kind == "erpnext" and feed == "orders":
+            rows = await client.fetch(None, limit=5)       # a look at the latest few, not every order on the site
+        else:
+            rows = await client.fetch(None)
     except IntegrationError as exc:
         return {"ok": False, "error": str(exc)}
     except Exception as exc:

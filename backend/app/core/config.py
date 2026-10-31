@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     # Empty = built-in simulator. Set a base URL to talk to the real ERP; see README "Integrations" for the contract.
     erp_base_url: str = ""
     erp_api_key: str = ""
+    # "generic" speaks the contract in the README; "erpnext" talks to an ERPNext site (ERP_API_KEY = "key:secret").
+    erp_kind: str = "generic"
+    erpnext_supplier: str = "Dispatch Demo Supplier"   # who purchase orders are raised with in ERPNext
     # The WMS also supplies live stock: GET {wms_base_url}/inventory (same base URL as dispatch orders).
     # Shared secret the WMS/ERP must send as header X-Integration-Key when it pushes data to our webhooks. Empty = webhooks off.
     integration_webhook_key: str = ""

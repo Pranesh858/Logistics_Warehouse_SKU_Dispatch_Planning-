@@ -341,7 +341,7 @@ async def status(db: AsyncSession) -> dict:
 def _system_view(system: str) -> dict:
     """What the admin may see. The key itself is never sent back, only whether one is set."""
     c = config_store.get(system)
-    return {"system": system, "base_url": c["base_url"], "enabled": c["enabled"], "has_key": bool(c["api_key"]),
+    return {"system": system, "kind": c.get("kind") or "generic", "base_url": c["base_url"], "enabled": c["enabled"], "has_key": bool(c["api_key"]),
             "field_map": c.get("field_map") or {}, "sync_minutes": c.get("sync_minutes") or {},
             "source": c.get("source", "env"), "updated_by": c.get("updated_by"), "updated_at": c.get("updated_at"),
             "feeds": list(config_store.FEEDS_OF[system])}

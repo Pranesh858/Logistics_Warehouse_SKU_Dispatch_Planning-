@@ -39,6 +39,7 @@ class IntegrationSetting(Base):
     __tablename__ = "integration_settings"
 
     system: Mapped[str] = mapped_column(String(10), primary_key=True)     # wms | erp
+    kind: Mapped[str] = mapped_column(String(20), default="generic")      # generic | erpnext (erp only)
     base_url: Mapped[str] = mapped_column(String(300), default="")
     api_key: Mapped[str] = mapped_column(String(300), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)         # off = keep using the simulator

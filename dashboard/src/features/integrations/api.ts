@@ -10,7 +10,7 @@ export const integrationsApi = {
   retryPurchase: (id: number) => api.post<PurchaseOrder>(`/integrations/purchase-orders/${id}/retry`),
   receivePurchase: (id: number) => api.post<PurchaseOrder>(`/integrations/purchase-orders/${id}/receive`),
   saveSystem: (system: 'wms' | 'erp', body: SystemInput) => api.put<SystemSettings>(`/integrations/settings/${system}`, body),
-  testConnection: (body: { feed: string; base_url?: string; api_key?: string | null; field_map?: Record<string, string> }) =>
+  testConnection: (body: { feed: string; kind?: string; base_url?: string; api_key?: string | null; field_map?: Record<string, string> }) =>
     api.post<TestResult>('/integrations/settings/test', body),
   pending: () => api.get<PendingConfirmations>('/integrations/confirmations/pending'),
   confirmAll: () => api.post<{ shipped: number; cancelled: number; units_released: number; message: string }>('/integrations/confirmations/all'),

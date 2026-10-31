@@ -422,6 +422,33 @@ behaves like both systems, including pushing shipping confirmations and stock ba
 `http://localhost:9100/wms` and `/erp`; `tests/test_fake_systems.py` runs the real HTTP code against it. See
 `fake_systems/README.md`.
 
+### ERPNext as the ERP
+
+The ERP can be an [ERPNext](https://erpnext.com) site instead of a system that speaks the contract above. In
+**Systems > Connections** set the ERP's *Type of system* to **ERPNext**, the address to the site, and the API key and
+secret of an ERPNext user (User > API Access). Or in `.env`: `ERP_KIND=erpnext`, `ERP_BASE_URL`, and
+`ERP_API_KEY=<key>:<secret>`.
+
+| Feed | ERPNext |
+|---|---|
+| Customer orders | Submitted Sales Orders that are not closed, completed or on hold. Each item line becomes one planner order, `SAL-ORD-2026-00004-1`, `-2`, ... |
+| Purchase orders | A submitted Purchase Order with `ERPNEXT_SUPPLIER` (default `Dispatch Demo Supplier`). Our PO reference is kept in *Order Confirmation No*, so sending one twice returns the first. |
+| Sales history | Not read from ERPNext yet: keep it on manual and use *Update sales data*. |
+
+The two sides agree on: item code = product ID, a warehouse named `WH01 - <company abbr>` for `WH01`, and the
+customer group = the tier (Premium / Standard / Basic; any other group plans as Standard).
+`scripts/erpnext_seed.py` sets a site up that way from the planner's seed files: it finishes ERPNext's setup
+wizard, creates the 6 warehouses, the 300 items, the customer groups with a demo customer each, the supplier and
+the opening stock, and skips whatever is already there:
+
+```
+python scripts/erpnext_seed.py --env-file path/to/erpnext-api.env      # ERPNEXT_URL, ERPNEXT_API_KEY, ERPNEXT_API_SECRET
+python scripts/erpnext_seed.py --env-file ... --demo-orders 5          # also place 5 sales orders to try a sync
+```
+
+A local ERPNext runs from the official `pwd.yml` of [frappe_docker](https://github.com/frappe/frappe_docker)
+(`docker compose -p erpnext -f pwd.yml up -d`, site on port 8080, about 1 GB of memory).
+
 ## Getting data into the database
 
 Nothing in the planner is typed into the code: every order, stock level, plan, reservation and login is a row in the

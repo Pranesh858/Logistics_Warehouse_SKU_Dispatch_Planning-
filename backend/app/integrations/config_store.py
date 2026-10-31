@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.integrations.models import IntegrationSetting
 
 SYSTEMS = ("wms", "erp")
+KINDS = {"wms": ("generic",), "erp": ("generic", "erpnext")}
 FEEDS_OF = {"wms": ("inventory", "dispatch"), "erp": ("orders", "sales", "purchasing")}
 SYSTEM_OF = {"inventory": "wms", "dispatch": "wms", "orders": "erp", "sales": "erp", "purchasing": "erp"}
 DEFAULT_SYNC = {"inventory": 0, "orders": 0, "sales": 0}
@@ -19,9 +20,10 @@ _conf: dict[str, dict] = {}
 
 def _from_env(system: str) -> dict:
     if system == "wms":
-        return {"base_url": settings.wms_base_url, "api_key": settings.wms_api_key, "enabled": bool(settings.wms_base_url),
+        return {"kind": "generic", "base_url": settings.wms_base_url, "api_key": settings.wms_api_key, "enabled": bool(settings.wms_base_url),
                 "field_map": {}, "sync_minutes": {"inventory": settings.inventory_sync_minutes}, "source": "env"}
-    return {"base_url": settings.erp_base_url, "api_key": settings.erp_api_key, "enabled": bool(settings.erp_base_url),
+    return {"kind": settings.erp_kind or "generic", "base_url": settings.erp_base_url, "api_key": settings.erp_api_key,
+            "enabled": bool(settings.erp_base_url),
             "field_map": {}, "sync_minutes": {"orders": settings.order_sync_minutes, "sales": settings.sales_sync_minutes}, "source": "env"}
 
 
@@ -39,6 +41,11 @@ def base_url(feed: str) -> str:
     """The URL to use for this feed, or "" when it should run on the simulator."""
     c = for_feed(feed)
     return c["base_url"] if c["enabled"] and c["base_url"] else ""
+
+
+def kind(feed: str) -> str:
+    """Which client talks to this feed's system: "generic" (our own contract) or "erpnext"."""
+    return for_feed(feed).get("kind") or "generic"
 
 
 def api_key(feed: str) -> str:
@@ -62,7 +69,7 @@ async def load(db: AsyncSession) -> int:
     with _lock:
         _conf.clear()
         for r in rows:
-            _conf[r.system] = {"base_url": r.base_url, "api_key": r.api_key, "enabled": r.enabled,
+            _conf[r.system] = {"kind": r.kind or "generic", "base_url": r.base_url, "api_key": r.api_key, "enabled": r.enabled,
                                "field_map": r.field_map or {}, "sync_minutes": r.sync_minutes or {},
                                "source": "app", "updated_by": r.updated_by,
                                "updated_at": r.updated_at.isoformat() if r.updated_at else None}
@@ -70,12 +77,13 @@ async def load(db: AsyncSession) -> int:
 
 
 async def save(db: AsyncSession, system: str, *, base_url: str, api_key: str | None, enabled: bool,
-               field_map: dict, sync_minutes: dict, user: str) -> dict:
+               field_map: dict, sync_minutes: dict, user: str, kind: str = "generic") -> dict:
     """An api_key of None keeps the stored one, so the admin never has to retype a secret they cannot see."""
     row = await db.get(IntegrationSetting, system)
     if row is None:
         row = IntegrationSetting(system=system, api_key="")
         db.add(row)
+    row.kind = kind
     row.base_url = base_url.strip().rstrip("/")
     if api_key is not None:
         row.api_key = api_key

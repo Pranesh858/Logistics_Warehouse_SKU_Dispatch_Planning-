@@ -34,6 +34,7 @@ async def sync_now(feed: Literal["inventory", "orders", "sales"], admin: Admin, 
 
 # ---- connections an admin configures ---------------------------------------------------------------------------------
 class SystemIn(BaseModel):
+    kind: Literal["generic", "erpnext"] = "generic"
     base_url: str = ""
     api_key: str | None = None          # leave out to keep the stored key
     enabled: bool = False
@@ -49,6 +50,8 @@ async def read_settings(admin: Admin, db: AsyncSession = Depends(get_db)):
 @router.put("/settings/{system}")
 async def write_settings(system: Literal["wms", "erp"], body: SystemIn, admin: Admin, db: AsyncSession = Depends(get_db)):
     """Point the planner at a different WMS or ERP without changing any code."""
+    if body.kind not in config_store.KINDS[system]:
+        raise BadRequestError(f"The {system.upper()} cannot be of type {body.kind}")
     if body.enabled and not body.base_url.strip():
         raise BadRequestError("Enter the system's address before switching it on")
     if body.base_url and not body.base_url.strip().lower().startswith(("http://", "https://")):
@@ -61,7 +64,7 @@ async def write_settings(system: Literal["wms", "erp"], body: SystemIn, admin: A
         if minutes < 0 or minutes > 10080:
             raise BadRequestError("Automatic sync must be between 0 (off) and 10080 minutes (a week)")
     await config_store.save(db, system, base_url=body.base_url, api_key=body.api_key, enabled=body.enabled,
-                            field_map=body.field_map, sync_minutes=body.sync_minutes, user=admin.username)
+                            field_map=body.field_map, sync_minutes=body.sync_minutes, user=admin.username, kind=body.kind)
     await service._log(db, "inventory" if system == "wms" else "orders", "live" if body.enabled else "simulator", "OK", 0,
                        f"{admin.username} {'connected' if body.enabled else 'disconnected'} the {system.upper()}"
                        + (f" at {body.base_url}" if body.enabled else ""))
@@ -72,6 +75,7 @@ async def write_settings(system: Literal["wms", "erp"], body: SystemIn, admin: A
 
 class TestIn(BaseModel):
     feed: Literal["inventory", "orders", "sales"]
+    kind: Literal["generic", "erpnext"] | None = None   # leave out to test the stored type
     base_url: str | None = None         # leave out to test what is stored
     api_key: str | None = None
     field_map: dict[str, str] = {}
@@ -87,7 +91,7 @@ async def test_connection(body: TestIn, admin: Admin):
         raise BadRequestError("Enter the system's address first")
     key = body.api_key if body.api_key is not None else saved["api_key"]
     mapping = body.field_map or (saved.get("field_map") or {}).get(body.feed, {})
-    return await clients.probe(body.feed, base, key, mapping)
+    return await clients.probe(body.feed, base, key, mapping, kind=body.kind or saved.get("kind") or "generic")
 
 
 # ---- purchase orders (raised from Units to order) --------------------------------------------------------------------
