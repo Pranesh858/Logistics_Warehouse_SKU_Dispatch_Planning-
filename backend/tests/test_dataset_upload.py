@@ -114,6 +114,23 @@ def test_new_sku_becomes_known_after_retrain(client, small_model):
     assert merged["date"].min() == START and merged[merged.product_id == 1]["date"].nunique() == 120
 
 
+def test_a_promotion_updates_the_typical_error_the_forecast_page_shows(client, small_model):
+    """The forecast page's "typical error" is the MAPE saved with the model. A retrain used to copy the previous
+    model's MAPE across, so the page showed the same figure (18.4%) whatever model was in use."""
+    old = json.loads(Path(settings.model_metadata_path).read_text())["cv_metrics"]["avg_mape_pct"]
+    assert client.post("/api/v1/forecast/dataset/retrain?force=true").status_code == 200
+    s = wait_done(client)
+    assert s["state"] == "done", s
+    measured = s["result"]["comparison"]["mape_after_pct"]
+    assert measured > 0 and measured != old
+
+    saved = json.loads(Path(settings.model_metadata_path).read_text())["cv_metrics"]
+    assert saved["avg_mape_pct"] == measured
+    assert saved["avg_wape"] == s["result"]["comparison"]["wape_after"]
+    r = client.post("/api/v1/forecast/run", json={"days": 7})
+    assert r.status_code == 200 and r.json()["model"]["mape_pct"] == measured
+
+
 def test_short_new_sku_is_left_out(client, small_model):
     upload = make_rows([7], 10)
     prev = client.post("/api/v1/forecast/dataset/check", files={"file": ("n.csv", csv_bytes(upload), "text/csv")}).json()["preview"]

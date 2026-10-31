@@ -75,12 +75,13 @@ def _retrain_on_history(force: bool = False) -> dict:
     raw = read_history()
     _set(step="Testing a new model on the most recent weeks", progress=30)
     cutoff = raw["date"].max() - pd.Timedelta(days=train.HOLDOUT_DAYS)
-    wape_new, rows = train.holdout_score(raw, cutoff)
+    new = train.holdout_metrics(raw, cutoff)
+    wape_new, rows = new["wape"], new["rows"]
     baseline = _baseline_wape()
     worse = bool(baseline and wape_new == wape_new and wape_new > baseline * (1 + train.MAX_WAPE_WORSENING))
     comparison = {"holdout_days": train.HOLDOUT_DAYS, "rows_scored": rows,
                   "wape_before": round(baseline, 4) if baseline else None, "wape_after": round(wape_new, 4),
-                  "worse": worse,
+                  "mape_after_pct": round(new["mape_pct"], 1), "worse": worse,
                   "change_pct": round((wape_new - baseline) / baseline * 100, 1) if baseline else 0.0,
                   "history_is_sample": on_sample}
     if worse and not force:

@@ -203,17 +203,26 @@ def fit(frame: pd.DataFrame) -> lgb.LGBMRegressor:
     return model
 
 
-def holdout_score(raw: pd.DataFrame, cutoff: pd.Timestamp, pairs: set | None = None) -> tuple[float, int]:
-    """Train on rows up to `cutoff`, then predict the days after it with the true lags (one day ahead)."""
+def holdout_metrics(raw: pd.DataFrame, cutoff: pd.Timestamp, pairs: set | None = None) -> dict:
+    """Train on rows up to `cutoff`, then predict the days after it with the true lags (one day ahead).
+
+    WAPE decides whether a new model is promoted; MAPE is the "typical error" the forecast page shows, so both
+    are measured on the same days and saved together.
+    """
     frame = features_from_raw(raw)
     model = fit(frame[frame["date"] <= cutoff])
     test = prepare_dataset(frame[frame["date"] > cutoff])
     if pairs is not None:
         test = test[[(p, w) in pairs for p, w in zip(test["product_id"], test["warehouse_id"])]]
     if test.empty:
-        return float("nan"), 0
+        return {"wape": float("nan"), "mape_pct": float("nan"), "rows": 0}
     pred = np.clip(model.predict(test[FEATURE_COLS]), 0, None)
-    return wape(test[TARGET], pred), len(test)
+    return {"wape": wape(test[TARGET], pred), "mape_pct": mape(test[TARGET], pred), "rows": len(test)}
+
+
+def holdout_score(raw: pd.DataFrame, cutoff: pd.Timestamp, pairs: set | None = None) -> tuple[float, int]:
+    m = holdout_metrics(raw, cutoff, pairs)
+    return m["wape"], m["rows"]
 
 
 def compare_models(old_raw: pd.DataFrame, merged: pd.DataFrame) -> dict:
@@ -221,10 +230,11 @@ def compare_models(old_raw: pd.DataFrame, merged: pd.DataFrame) -> dict:
     cutoff = old_raw["date"].max() - pd.Timedelta(days=HOLDOUT_DAYS)
     pairs = set(map(tuple, old_raw[KEYS].drop_duplicates().to_numpy()))
     before, n_before = holdout_score(old_raw, cutoff, pairs)
-    after, n_after = holdout_score(merged, cutoff, pairs)
+    new = holdout_metrics(merged, cutoff, pairs)
+    after, n_after = new["wape"], new["rows"]
     worse = bool(np.isfinite(before) and np.isfinite(after) and after > before * (1 + MAX_WAPE_WORSENING))
     return {"holdout_days": HOLDOUT_DAYS, "rows_scored": n_after, "wape_before": round(before, 4),
-            "wape_after": round(after, 4), "worse": worse,
+            "wape_after": round(after, 4), "mape_after_pct": round(new["mape_pct"], 1), "worse": worse,
             "change_pct": round((after - before) / before * 100, 1) if before else 0.0}
 
 
@@ -266,7 +276,9 @@ def promote(model, merged_raw: pd.DataFrame, frame: pd.DataFrame, comparison: di
         "retrain_check": comparison,
     })
     if np.isfinite(comparison.get("wape_after", float("nan"))):
-        meta["cv_metrics"] = {"avg_wape": comparison["wape_after"], "avg_mape_pct": meta.get("cv_metrics", {}).get("avg_mape_pct", 0)}
+        # Both figures describe the model being promoted. The MAPE used to be carried over from the previous model,
+        # so the forecast page's "typical error" never changed after a retrain.
+        meta["cv_metrics"] = {"avg_wape": comparison["wape_after"], "avg_mape_pct": comparison.get("mape_after_pct")}
 
     joblib.dump(model, settings.model_path)
     Path(settings.model_metadata_path).write_text(json.dumps(meta, indent=2), encoding="utf-8")
