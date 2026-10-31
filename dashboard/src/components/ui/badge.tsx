@@ -28,15 +28,15 @@ const DOT: Record<string, string> = {
 };
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
+  extends React.HTMLAttributes<HTMLSpanElement>,
     VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, dot = true, children, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props}>
+    <span className={cn(badgeVariants({ variant }), className)} {...props}>
       {dot && <span aria-hidden="true" className={cn('h-1.5 w-1.5 rounded-[1px]', DOT[variant ?? 'default'])} />}
       {children}
-    </div>
+    </span>
   );
 }
 

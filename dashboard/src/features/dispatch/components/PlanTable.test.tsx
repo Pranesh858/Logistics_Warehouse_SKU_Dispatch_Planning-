@@ -218,7 +218,7 @@ describe('a plan that was already approved', () => {
   it('reports what the WMS did instead of offering changes', () => {
     render(<PlanTable plan={plan([line({ export_status: 'SENT', exception_type: 'Shortage' })],
       { status: 'EXPORTED' })} editable />);
-    expect(screen.getByText('Sent', { selector: 'div' })).toBeInTheDocument();
+    expect(screen.getByText('Sent', { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Sent' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument();
   });
