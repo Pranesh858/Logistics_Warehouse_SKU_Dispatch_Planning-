@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, Table, TableFrame, TD, TH, THead, TR } from '@/components/ui/table';
 import { PageBody, PageHeader } from '@/components/layout/PageHeader';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { errorMessage } from '@/lib/api';
 import { useWarehouseList } from '@/features/dispatch/hooks';
 import { useAddUser, useEditUser, useUsers } from '../hooks';
@@ -63,7 +64,7 @@ export function UsersPage() {
             <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 h-comp-sm w-44" required />
           </label>
           <label className="text-label text-ink-muted">Starting password
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 h-comp-sm w-40"
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 h-comp-sm w-40"
               required minLength={8} autoComplete="new-password" placeholder="8+ characters" />
           </label>
           <label className="text-label text-ink-muted">Role
@@ -111,7 +112,7 @@ export function UsersPage() {
                     <TD align="right">
                       {resetFor === u.id ? (
                         <span className="inline-flex items-center gap-1.5">
-                          <Input type="password" aria-label={`New password for ${u.username}`} value={newPw} onChange={(e) => setNewPw(e.target.value)}
+                          <PasswordInput aria-label={`New password for ${u.username}`} value={newPw} onChange={(e) => setNewPw(e.target.value)}
                             placeholder="New password" className="h-comp-sm w-36" autoComplete="new-password" />
                           <Button size="sm" disabled={newPw.length < 8 || edit.isPending}
                             onClick={() => change(u, { password: newPw }, () => { setResetFor(null); setNewPw(''); })}>Save</Button>

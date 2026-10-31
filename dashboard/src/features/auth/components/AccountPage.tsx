@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PageBody, PageHeader } from '@/components/layout/PageHeader';
-import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { errorMessage } from '@/lib/api';
 import { authApi } from '../api';
 import { useAuth } from '../store';
@@ -60,14 +60,14 @@ export function AccountPage() {
 
           <form onSubmit={submit} className="space-y-3 p-4">
             <label className="block text-label text-ink-muted">Current password
-              <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required className="mt-1" />
+              <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required className="mt-1" />
             </label>
             <label className="block text-label text-ink-muted">New password
-              <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" required minLength={8} className="mt-1" />
+              <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" required minLength={8} className="mt-1" />
               {tooShort && <span className="mt-1 block text-caption text-danger-text">Use at least 8 characters.</span>}
             </label>
             <label className="block text-label text-ink-muted">Repeat the new password
-              <Input type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" required className="mt-1" />
+              <PasswordInput value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" required className="mt-1" />
               {mismatch && <span className="mt-1 block text-caption text-danger-text">The two passwords do not match.</span>}
             </label>
             {error && <p role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-body-sm text-danger-text">{error}</p>}

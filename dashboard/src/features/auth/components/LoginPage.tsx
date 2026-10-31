@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { errorMessage } from '@/lib/api';
 import { authApi } from '../api';
 import { useAuth } from '../store';
@@ -65,7 +66,7 @@ export function LoginPage() {
               <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required className="mt-1" />
             </label>
             <label className="block text-label text-ink-muted">Password
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className="mt-1" />
+              <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required className="mt-1" />
             </label>
             {error && <p role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-body-sm text-danger-text">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy || !username.trim() || !password}>{busy ? 'Signing in…' : 'Sign in'}</Button>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { errorMessage } from '@/lib/api';
 import { useSaveSystem, useTestConnection } from '../hooks';
@@ -95,7 +96,7 @@ function SystemForm({ system, saved }: { system: 'wms' | 'erp'; saved: SystemSet
 
       <div className="space-y-1.5">
         <Label htmlFor={`${system}-key`}>Access key</Label>
-        <Input id={`${system}-key`} type="password" className="h-comp-sm" value={key} onChange={(e) => setKey(e.target.value)}
+        <PasswordInput id={`${system}-key`} secretName="key" className="h-comp-sm" value={key} onChange={(e) => setKey(e.target.value)}
           placeholder={saved.has_key ? 'A key is saved. Type to replace it.' : 'Sent as a bearer token'} />
       </div>
 

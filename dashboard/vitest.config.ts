@@ -15,5 +15,9 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     restoreMocks: true,
+    // Tests mock the API calls they care about. A call they do not mock must fail as if no backend were running,
+    // not reach one that happens to be up on localhost:8000: its 401 signs the test user out and breaks the tests
+    // after it. Nothing listens on port 9, so such a call is refused straight away.
+    env: { NEXT_PUBLIC_API_URL: 'http://127.0.0.1:9' },
   },
 });
