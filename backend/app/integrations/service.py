@@ -5,13 +5,15 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import locks
 from app.core.config import settings
 from app.integrations import clients, config_store
 from app.integrations.models import IntegrationRun, PurchaseOrder, StockLevel
 from app.ml import train
+from app.ml.features import read_history
 from app.modules.dispatch import service as dispatch_service
 from app.modules.dispatch.engine import TIER_RANK
 from app.modules.dispatch.models import LedgerEntry, Order
@@ -19,6 +21,8 @@ from app.modules.dispatch.schemas import OrderIn
 from app.modules.forecast import dataset as dataset_service
 from app.modules.forecast import orders as order_needs
 from app.modules.forecast.runtime import runtime
+from app.modules.stock import service as stock_service
+from app.modules.stock.models import SHIPMENT
 from app.shared.exceptions import BadRequestError, NotFoundError
 
 FEEDS = ("inventory", "orders", "sales", "purchasing", "dispatch")
@@ -31,20 +35,14 @@ async def _log(db: AsyncSession, feed: str, mode: str, status: str, rows: int, m
     return run
 
 
-async def load_overlay(db: AsyncSession) -> int:
-    """At startup: put the last known WMS stock back in front of the sales-history stock."""
-    rows = (await db.execute(select(StockLevel))).scalars().all()
-    runtime.set_live_stock({(r.product_id, r.warehouse_id): r.qty for r in rows})
-    return len(rows)
-
-
 # ------------------------------------------------------------------------------ inventory
-async def apply_stock(db: AsyncSession, items: list[dict], source: str) -> tuple[int, int, int]:
-    """Store reported stock. Returns (applied, changed, skipped). Unknown SKU/warehouse pairs are skipped, not fatal."""
-    known = {(int(r.product_id), r.warehouse_id): float(r.stock_on_hand) for r in (await dispatch_service._stock()).itertuples()}
-    existing = {(r.product_id, r.warehouse_id): r for r in (await db.execute(select(StockLevel))).scalars().all()}
-    applied = changed = skipped = 0
-    live = dict(runtime._live_stock)
+async def apply_stock(db: AsyncSession, items: list[dict], source: str, username: str | None = None,
+                      reason: str | None = None) -> tuple[int, int, int]:
+    """Store reported stock counts. Returns (applied, changed, skipped). Unknown SKU/warehouse pairs are skipped, not
+    fatal. Each figure that moved is recorded as an ADJUSTMENT in the stock ledger."""
+    known = {(int(r.product_id), r.warehouse_id) for r in (await dispatch_service._stock()).itertuples()}
+    counts: dict[tuple[int, str], float] = {}
+    skipped = 0
     for it in items:
         try:
             key = (int(it["product_id"]), str(it["warehouse_id"]).strip().upper())
@@ -55,17 +53,9 @@ async def apply_stock(db: AsyncSession, items: list[dict], source: str) -> tuple
         if key not in known or qty < 0:
             skipped += 1
             continue
-        applied += 1
-        if abs(known[key] - qty) > 1e-6:
-            changed += 1
-        row = existing.get(key)
-        if row is None:
-            db.add(StockLevel(product_id=key[0], warehouse_id=key[1], qty=qty, source=source, updated_at=datetime.now()))
-        else:
-            row.qty, row.source, row.updated_at = qty, source, datetime.now()
-        live[key] = qty
-    await db.commit()
-    runtime.set_live_stock(live)
+        counts[key] = qty
+    changed = await stock_service.count(db, counts, source=source, username=username, reason=reason)
+    applied = len(counts)
     if changed:
         await dispatch_service.recommend_plan(db, trigger="stock_update")
     return applied, changed, skipped
@@ -84,7 +74,15 @@ async def sync_inventory(db: AsyncSession) -> IntegrationRun:
 
 # ------------------------------------------------------------------------------ orders
 async def add_erp_orders(db: AsyncSession, raw: list[dict]) -> tuple[int, int]:
-    """Add new orders from the ERP. Already-known and unusable orders are skipped one by one. Returns (added, skipped)."""
+    """Add new orders from the ERP. Already-known and unusable orders are skipped one by one. Returns (added, skipped).
+
+    One batch at a time: two copies of the same order arriving together must not both pass the "already known"
+    check, or the second would fail on the database's unique key instead of being skipped."""
+    async with locks.named("erp-orders"):
+        return await _add_erp_orders(db, raw)
+
+
+async def _add_erp_orders(db: AsyncSession, raw: list[dict]) -> tuple[int, int]:
     snap = await dispatch_service._stock()
     valid_pairs = set(zip(snap["product_id"], snap["warehouse_id"]))
     known_ids = set((await db.execute(select(Order.order_id))).scalars().all())
@@ -122,7 +120,7 @@ async def sync_orders(db: AsyncSession) -> IntegrationRun:
 # ------------------------------------------------------------------------------ sales history
 def _append_sales(rows: list[dict]) -> tuple[int, list[int], list[str]]:
     """Blocking: validate, merge into the dataset file and reload the history. The model is NOT retrained here."""
-    old = pd.read_csv(settings.dataset_path, parse_dates=["date"])
+    old = read_history()
     clean, errors, warnings = train.validate_upload(pd.DataFrame(rows))
     if errors:
         raise BadRequestError("; ".join(errors))
@@ -148,6 +146,7 @@ async def sync_sales(db: AsyncSession) -> IntegrationRun:
         if not raw:
             return await _log(db, "sales", mode, "OK", 0, "No new sales")
         n, new_products, warnings = await asyncio.to_thread(_append_sales, raw)
+        await stock_service.register_from_history(db)      # a SKU new to the history becomes a stocked SKU
         await dispatch_service.recommend_plan(db, trigger="sales_update")
     except Exception as exc:
         return await _log(db, "sales", mode, "FAILED", 0, getattr(exc, "detail", None) or str(exc))
@@ -172,13 +171,6 @@ async def pending_confirmations(db: AsyncSession, warehouse_id: str | None) -> l
              "committed_at": r.committed_at.isoformat() if r.committed_at else None} for r in rows]
 
 
-async def _ship_out(db: AsyncSession, taken: dict[tuple[int, str], float]) -> None:
-    """Goods that have left the building are no longer on the shelf. Our stock view is physical stock, so it drops
-    by what shipped. Where a WMS feed is connected its next report overwrites this with the authoritative figure."""
-    from app.modules.dispatch import stockview
-    await stockview.apply_delta(db, {key: -qty for key, qty in taken.items()}, "dispatch")
-
-
 async def confirm_dispatch(db: AsyncSession, items: list[dict], source: str, warehouse_id: str | None = None) -> dict:
     """The WMS tells us what really happened to approved orders.
 
@@ -190,28 +182,38 @@ async def confirm_dispatch(db: AsyncSession, items: list[dict], source: str, war
     """
     shipped = cancelled = skipped = 0
     freed = 0.0
-    taken: dict[tuple[int, str], float] = {}
-    for it in items:
-        oid = str(it.get("order_id") or "").strip()
-        state = CLOSED.get(str(it.get("status") or "shipped").strip().lower())
-        row = await db.get(LedgerEntry, oid) if oid else None
-        if row is None or state is None or row.fulfilment != "RESERVED" or (warehouse_id and row.warehouse_id != warehouse_id):
-            skipped += 1
-            continue
-        row.fulfilment = state
-        row.closed_at = datetime.now()
-        freed += float(row.qty_committed)
-        if state == "SHIPPED":
-            shipped += 1
-            key = (int(row.product_id), row.warehouse_id)
-            taken[key] = taken.get(key, 0.0) + float(row.qty_committed)
-        else:
-            cancelled += 1
-        order = await db.get(Order, oid)      # finished or cancelled: either way it is no longer an open order
-        if order is not None:
-            await db.delete(order)
-    await db.commit()
-    await _ship_out(db, taken)
+    taken: list[stock_service.Move] = []
+    # A WMS may send the same confirmation twice, and both copies may arrive at once. Only one may close the order
+    # and take its stock off the shelf: the lock stops two requests here interleaving, and the update below only
+    # changes a row that is still RESERVED, so even a second process could not close it twice.
+    async with locks.named("dispatch-confirm"):
+        for it in items:
+            oid = str(it.get("order_id") or "").strip()
+            state = CLOSED.get(str(it.get("status") or "shipped").strip().lower())
+            row = await db.get(LedgerEntry, oid) if oid else None
+            if row is None or state is None or row.fulfilment != "RESERVED" or (warehouse_id and row.warehouse_id != warehouse_id):
+                skipped += 1
+                continue
+            closed = await db.execute(update(LedgerEntry)
+                                      .where(LedgerEntry.order_id == oid, LedgerEntry.fulfilment == "RESERVED")
+                                      .values(fulfilment=state, closed_at=datetime.now()))
+            if closed.rowcount != 1:
+                skipped += 1
+                continue
+            freed += float(row.qty_committed)
+            if state == "SHIPPED":
+                shipped += 1
+                taken.append(stock_service.Move(int(row.product_id), row.warehouse_id, -float(row.qty_committed),
+                                                SHIPMENT, ref=oid))
+            else:
+                cancelled += 1
+            order = await db.get(Order, oid)      # finished or cancelled: either way it is no longer an open order
+            if order is not None:
+                await db.delete(order)
+        await db.commit()
+        # Goods that have left the building are no longer on the shelf, so stock drops by what shipped. Where a WMS
+        # feed is connected its next report overwrites this with the authoritative figure.
+        await stock_service.apply(db, taken, source=source)
     if shipped or cancelled:
         await dispatch_service.recommend_plan(db, trigger="dispatch_confirmed")
     msg = f"{shipped} shipped, {cancelled} cancelled, {round(freed):g} units released from reservation"
@@ -293,6 +295,7 @@ async def maybe_retrain(db: AsyncSession, session_factory) -> IntegrationRun | N
                 c = result.get("comparison", {})
                 await _log(s2, "retrain", "scheduled", "OK", result.get("training_rows", 0),
                            f"Retrained on history to {result.get('history_to')}: error {c.get('wape_before')} -> {c.get('wape_after')}")
+                await stock_service.register_from_history(s2)
                 await dispatch_service.recommend_plan(s2, trigger="retrained")
         asyncio.run_coroutine_threadsafe(after(), loop)
 
@@ -322,7 +325,8 @@ async def status(db: AsyncSession) -> dict:
     dispatch_mode = clients.mode("dispatch")
     return {
         "feeds": feeds, "dispatch_export": {"system": "WMS", "mode": dispatch_mode},
-        "live_stock_skus": runtime.live_stock_count(), "webhooks_enabled": bool(settings.integration_webhook_key),
+        "live_stock_skus": (await db.execute(select(func.count()).select_from(StockLevel).where(
+            StockLevel.source.in_(("wms", "webhook"))))).scalar_one(), "webhooks_enabled": bool(settings.integration_webhook_key),
         "systems": {s: _system_view(s) for s in config_store.SYSTEMS},
         "awaiting_confirmation": (await db.execute(
             select(func.count()).select_from(LedgerEntry).where(LedgerEntry.fulfilment == "RESERVED"))).scalar_one(),

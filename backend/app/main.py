@@ -18,6 +18,9 @@ from app.integrations import models as _integration_models  # noqa: F401  (regis
 from app.modules.forecast import supply as _supply_models  # noqa: F401  (registers supplier_lead_times)
 from app.modules.alerts import models as _alert_models  # noqa: F401  (registers the alerts table)
 from app.modules.alerts.router import router as alerts_router
+from app.modules.stock import models as _stock_models  # noqa: F401  (registers the master data and stock ledger)
+from app.modules.stock import service as stock_service
+from app.modules.stock.router import router as stock_router
 from app.integrations import config_store as integration_config
 from app.integrations import service as integration_service
 from app.integrations.router import router as integrations_router
@@ -30,10 +33,12 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
-        await users_service.seed_users(db)
+        await stock_service.seed(db)          # master data and opening stock, the first time only
+        await stock_service.load_cache(db)
+    async with AsyncSessionLocal() as db:
+        await users_service.seed_users(db)    # one planner per warehouse, so it needs the warehouses loaded
     async with AsyncSessionLocal() as db:
         await integration_config.load(db)
-        await integration_service.load_overlay(db)
     if settings.auto_plan_on_startup:
         # The first recommended plan is built automatically; sending anything to the WMS still needs approval.
         async with AsyncSessionLocal() as db:
@@ -77,6 +82,7 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(forecast_router, prefix="/api/v1")
 app.include_router(dispatch_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
+app.include_router(stock_router, prefix="/api/v1")
 app.include_router(alerts_router, prefix="/api/v1")
 
 

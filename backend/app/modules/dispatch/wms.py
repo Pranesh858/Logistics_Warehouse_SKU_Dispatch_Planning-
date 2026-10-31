@@ -1,5 +1,6 @@
 """WMS/ERP adapters. The service only sees `WmsClient.send(order) -> (ok, error)`."""
 import hashlib
+from contextlib import asynccontextmanager
 from typing import Protocol
 
 import httpx
@@ -35,11 +36,26 @@ class HttpWms:
     def __init__(self, base_url: str, api_key: str = ""):
         self.base_url = base_url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._http: httpx.AsyncClient | None = None
+
+    @asynccontextmanager
+    async def session(self):
+        """One connection for a whole export run. Opening a client per order costs ~0.4 s each on Windows (measured:
+        1000 orders took over 6 minutes); reusing one keeps it to ~10 ms an order."""
+        async with httpx.AsyncClient(timeout=settings.wms_timeout_seconds) as client:
+            self._http = client
+            try:
+                yield self
+            finally:
+                self._http = None
 
     async def send(self, payload: dict, attempt: int) -> tuple[bool, str | None]:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(f"{self.base_url}/dispatch-orders", json=payload, headers=self.headers)
+            if self._http is not None:
+                r = await self._http.post(f"{self.base_url}/dispatch-orders", json=payload, headers=self.headers)
+            else:
+                async with httpx.AsyncClient(timeout=settings.wms_timeout_seconds) as client:
+                    r = await client.post(f"{self.base_url}/dispatch-orders", json=payload, headers=self.headers)
             if r.status_code < 300:
                 return True, None
             return False, f"WMS returned HTTP {r.status_code}: {r.text[:200]}"

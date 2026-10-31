@@ -8,12 +8,14 @@ Dispatch planning workflow:
     stuck exports            ->  retry; nothing is ever sent to the WMS before approval
 """
 import asyncio
+import contextlib
 import datetime as dt
 
 import pandas as pd
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import locks
 from app.core.config import settings
 from app.modules.dispatch import engine, packing, transfers
 from app.modules.dispatch.models import (
@@ -26,7 +28,11 @@ from app.modules.forecast import service as forecast_service
 from app.modules.forecast.runtime import runtime
 from app.shared.exceptions import BadRequestError, ConflictError, NotFoundError
 
-_lock = asyncio.Lock()   # one plan write / WMS export at a time -> no double export, no double allocation
+
+
+def _lock() -> asyncio.Lock:
+    """One plan write / WMS export at a time -> no double export, no double allocation."""
+    return locks.named("plan")
 
 
 # ----------------------------------------------------------------- helpers
@@ -86,6 +92,11 @@ async def seed_orders(db: AsyncSession) -> int:
     df = pd.read_csv(path, parse_dates=["order_timestamp", "due_date"])
     df["order_timestamp"] = df["order_timestamp"].dt.floor("s")
     df["due_date"] = df["due_date"].dt.floor("s")
+    # The file holds fixed dates, which would be long past by the time anyone runs the demo. Move every order by
+    # the same amount so the newest one arrives now: order times and due windows keep their spacing.
+    shift = pd.Timestamp.now().floor("s") - df["order_timestamp"].max()
+    df["order_timestamp"] += shift
+    df["due_date"] += shift
     db.add_all(Order(**{k: (v.to_pydatetime() if hasattr(v, "to_pydatetime") else v) for k, v in rec.items()
                         if k in Order.__table__.columns.keys()})
                for rec in df.to_dict(orient="records"))
@@ -112,7 +123,7 @@ async def ingest_orders(db: AsyncSession, orders: list[OrderIn]) -> Plan:
 async def recommend_plan(db: AsyncSession, trigger: str = "recalculate", carry_from: Plan | None = None,
                          carry_except: str | None = None) -> Plan | None:
     """carry_from: a plan that was just approved for one warehouse; the planner's edits on every OTHER warehouse are kept."""
-    async with _lock:
+    async with _lock():
         return await _recommend_locked(db, trigger, carry_from, carry_except)
 
 
@@ -252,7 +263,7 @@ async def _name_taken(db: AsyncSession, name: str, except_id: int | None = None)
 
 
 async def create_truck(db: AsyncSession, name: str, warehouse_id: str, capacity_units: float) -> Truck:
-    async with _lock:
+    async with _lock():
         if not name.strip():
             raise BadRequestError("Truck name is required")
         if capacity_units <= 0:
@@ -272,7 +283,7 @@ async def create_truck(db: AsyncSession, name: str, warehouse_id: str, capacity_
 
 async def update_truck(db: AsyncSession, truck_id: int, name: str | None, capacity_units: float | None,
                        active: bool | None) -> Truck:
-    async with _lock:
+    async with _lock():
         truck = await db.get(Truck, truck_id)
         if truck is None:
             raise NotFoundError("Truck not found")
@@ -301,7 +312,7 @@ async def remove_truck(db: AsyncSession, truck_id: int) -> Truck:
 
 async def move_order_to_truck(db: AsyncSession, plan_id: int, order_id: str, truck_id: int | None) -> Plan:
     """Planner puts a whole order on a chosen truck (or passes None to let the packer decide again)."""
-    async with _lock:
+    async with _lock():
         plan = await get_plan(db, plan_id)
         if plan.status != PLAN_RECOMMENDED:
             raise ConflictError(f"Plan v{plan.version} is {plan.status}; only the current recommendation can be edited")
@@ -458,7 +469,7 @@ def _summary(lines: list[dict]) -> dict:
 # ----------------------------------------------------------------- review
 async def review_line(db: AsyncSession, plan_id: int, order_id: str, decision: str,
                       override_qty: float | None, override_reason: str | None) -> Plan:
-    async with _lock:
+    async with _lock():
         plan = await get_plan(db, plan_id)
         if plan.status != PLAN_RECOMMENDED:
             raise ConflictError(f"Plan v{plan.version} is {plan.status}; only the current recommendation can be edited")
@@ -496,7 +507,7 @@ async def review_line(db: AsyncSession, plan_id: int, order_id: str, decision: s
 # ----------------------------------------------------------------- approve + export
 async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehouse_id: str | None = None) -> Plan:
     """warehouse_id: approve only that warehouse's orders (a planner's approval). None = every warehouse (admin)."""
-    async with _lock:
+    async with _lock():
         plan = await get_plan(db, plan_id)
         if plan.status != PLAN_RECOMMENDED:
             raise ConflictError(f"Plan v{plan.version} is {plan.status}; it cannot be approved again")
@@ -536,7 +547,13 @@ async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehou
             db.add(LedgerEntry(order_id=l.order_id, product_id=l.product_id, warehouse_id=l.warehouse_id,
                                qty_committed=qty, customer_tier=l.customer_tier, committed_decision=l.decision,
                                plan_id=plan.id, wms_status="FAILED"))
-        await db.flush()
+        # The reservations are kept before anything is sent, and the transaction is closed: the sends below are
+        # network calls, and holding the database for their whole length blocked every other write (on SQLite the
+        # whole database) for minutes with a large plan. Until every order is through, the plan reads as partly
+        # sent, which is also what a retry needs if the export is interrupted.
+        if sendable:
+            plan.status = PLAN_PARTIAL
+        await db.commit()
         await _send_pending(db, plan, warehouse_id)
         await _refresh_plan_status(db, plan, has_sendable=bool(sendable))
         await db.commit()
@@ -547,28 +564,51 @@ async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehou
     return plan
 
 
+EXPORT_COMMIT_EVERY = 25       # results are saved as they come, so an interrupted export loses at most this many
+
+
 async def _send_pending(db: AsyncSession, plan: Plan, warehouse_id: str | None = None) -> None:
+    """Send every order of this plan the WMS has not accepted yet.
+
+    A WMS that is down or hanging is not tried order after order: once `wms_give_up_after` orders have failed in a
+    row the rest are logged as not tried and left for a retry, so an approval against a dead WMS ends in seconds
+    rather than taking (orders x retries x timeout).
+    """
     client = get_wms_client()
     q = select(LedgerEntry).where(LedgerEntry.plan_id == plan.id, LedgerEntry.wms_status == "FAILED")
     if warehouse_id:
         q = q.where(LedgerEntry.warehouse_id == warehouse_id)
     pending = (await db.execute(q)).scalars().all()
     names = {t.id: t.name for t in (await db.execute(select(Truck))).scalars()}
-    load_rows = (await db.execute(select(TruckLoad).where(TruckLoad.plan_id == plan.id))).scalars().all()
-    for ent in pending:
-        payload = {"order_id": ent.order_id, "product_id": ent.product_id, "warehouse_id": ent.warehouse_id,
-                   "qty": ent.qty_committed, "customer_tier": ent.customer_tier, "plan_version": plan.version,
-                   "approved_by": plan.approved_by,
-                   "trucks": [{"truck_id": ld.truck_id, "truck_name": names.get(ld.truck_id), "qty": ld.qty}
-                              for ld in load_rows if ld.order_id == ent.order_id]}
-        attempts, ok, err = 0, False, None
-        while attempts < settings.wms_max_retries and not ok:
-            attempts += 1
-            ok, err = await client.send(payload, attempts)
-        ent.wms_status = "SENT" if ok else "FAILED"
-        db.add(ExportLog(plan_id=plan.id, order_id=ent.order_id, qty=ent.qty_committed,
-                         export_status="SUCCESS" if ok else "FAILED", attempts=attempts, error=None if ok else err,
-                         exported_at=dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) if ok else None))
+    loads: dict[str, list] = {}
+    for ld in (await db.execute(select(TruckLoad).where(TruckLoad.plan_id == plan.id))).scalars():
+        loads.setdefault(ld.order_id, []).append(ld)
+    session = client.session() if hasattr(client, "session") else contextlib.nullcontext(client)
+    failed_in_a_row = 0
+    async with session:
+        for i, ent in enumerate(pending, start=1):
+            now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            if failed_in_a_row >= settings.wms_give_up_after:
+                db.add(ExportLog(plan_id=plan.id, order_id=ent.order_id, qty=ent.qty_committed, export_status="FAILED",
+                                 attempts=0, error=f"not tried: the WMS failed {failed_in_a_row} orders in a row, "
+                                                   f"so this one waits for a retry"))
+                continue
+            payload = {"order_id": ent.order_id, "product_id": ent.product_id, "warehouse_id": ent.warehouse_id,
+                       "qty": ent.qty_committed, "customer_tier": ent.customer_tier, "plan_version": plan.version,
+                       "approved_by": plan.approved_by,
+                       "trucks": [{"truck_id": ld.truck_id, "truck_name": names.get(ld.truck_id), "qty": ld.qty}
+                                  for ld in loads.get(ent.order_id, [])]}
+            attempts, ok, err = 0, False, None
+            while attempts < settings.wms_max_retries and not ok:
+                attempts += 1
+                ok, err = await client.send(payload, attempts)
+            failed_in_a_row = 0 if ok else failed_in_a_row + 1
+            ent.wms_status = "SENT" if ok else "FAILED"
+            db.add(ExportLog(plan_id=plan.id, order_id=ent.order_id, qty=ent.qty_committed,
+                             export_status="SUCCESS" if ok else "FAILED", attempts=attempts, error=None if ok else err,
+                             exported_at=now if ok else None))
+            if i % EXPORT_COMMIT_EVERY == 0:
+                await db.commit()
 
 
 async def _refresh_plan_status(db: AsyncSession, plan: Plan, has_sendable: bool | None = None) -> None:
@@ -582,7 +622,7 @@ async def _refresh_plan_status(db: AsyncSession, plan: Plan, has_sendable: bool 
 
 
 async def retry_exports(db: AsyncSession, plan_id: int, warehouse_id: str | None = None) -> Plan:
-    async with _lock:
+    async with _lock():
         plan = await get_plan(db, plan_id)
         if plan.status != PLAN_PARTIAL:
             raise ConflictError("Nothing to retry for this plan")

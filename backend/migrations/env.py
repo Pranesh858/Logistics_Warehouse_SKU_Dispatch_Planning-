@@ -16,6 +16,7 @@ from app.modules.dispatch import models as dispatch_models  # noqa: F401
 from app.modules.forecast import supply as supply_models  # noqa: F401
 from app.modules.users import models as user_models  # noqa: F401
 from app.modules.alerts import models as alert_models  # noqa: F401
+from app.modules.stock import models as stock_models  # noqa: F401
 
 config = context.config
 if config.config_file_name:

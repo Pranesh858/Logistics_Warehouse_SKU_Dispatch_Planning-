@@ -49,7 +49,7 @@ export function DatasetUpload() {
               <Button size="sm" onClick={() => input.current?.click()} disabled={act.check.isPending}>
                 <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />{act.check.isPending ? 'Checking…' : 'Choose a CSV or Excel file'}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => act.retrain.mutate()} disabled={act.retrain.isPending}>
+              <Button size="sm" variant="outline" onClick={() => act.retrain.mutate(false)} disabled={act.retrain.isPending}>
                 {act.retrain.isPending ? 'Starting…' : 'Retrain on current history'}
               </Button>
               <p className="w-full text-caption text-ink-muted">
@@ -117,8 +117,18 @@ export function DatasetUpload() {
                 The new model was {Math.abs(s.result.comparison.change_pct).toFixed(0)}% less accurate on the most recent {s.result.comparison.holdout_days} days
                 ({s.result.comparison.wape_before === null ? 'not measured' : `${(s.result.comparison.wape_before * 100).toFixed(1)}%`} before, {(s.result.comparison.wape_after * 100).toFixed(1)}% after). Check the data, or use it anyway.
               </p>
+              {s.result.comparison.history_is_sample && (
+                <p className="mt-1">
+                  The sales history here is the 120-day sample that comes with the project, while the model in use was trained on three years, so a model
+                  trained on the sample is expected to score lower. Add the full history file to compare like with like.
+                </p>
+              )}
               <div className="mt-3 flex gap-2">
-                {s.reason !== 'scheduled' && <Button size="sm" onClick={() => { act.apply.mutate(true); }}>Use the new data anyway</Button>}
+                {s.kind === 'history' ? (
+                  <Button size="sm" onClick={() => act.retrain.mutate(true)} disabled={act.retrain.isPending}>Use the new model anyway</Button>
+                ) : (
+                  <Button size="sm" onClick={() => act.apply.mutate(true)} disabled={act.apply.isPending}>Use the new data anyway</Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => act.discard.mutate()}>Discard</Button>
               </div>
             </div>

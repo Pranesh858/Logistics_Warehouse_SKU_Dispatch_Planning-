@@ -158,7 +158,7 @@ async def set_stock(body: StockCountIn, user: Planner, db: AsyncSession = Depend
              for i in body.items]
     for it in items:
         ensure_warehouse(user, it["warehouse_id"])
-    applied, changed, skipped = await service.apply_stock(db, items, "manual")
+    applied, changed, skipped = await service.apply_stock(db, items, "manual", user.username, body.reason)
     if not applied:
         raise BadRequestError("None of those SKUs exist at that warehouse. Pick them from the list.")
     await service._log(db, "inventory", "manual", "OK", applied,

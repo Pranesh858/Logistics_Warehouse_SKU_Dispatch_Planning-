@@ -54,6 +54,16 @@ def using_sample_dataset() -> bool:
     return not Path(settings.dataset_path).exists() and Path(settings.sample_dataset_path).exists()
 
 
+def read_history() -> pd.DataFrame:
+    """The sales history as it stands, for code that merges into it (uploads, retrains, the ERP sales feed).
+
+    Reads the sample when the full file is missing, like the forecast does. What these callers write always goes
+    to `settings.dataset_path`, so on a fresh clone the first upload or retrain turns sample + new rows into the
+    history from then on.
+    """
+    return pd.read_csv(resolve_dataset_path(), parse_dates=["date"])
+
+
 def load_data(path=None):
     global _sample_notice_shown
     resolved = resolve_dataset_path(path)

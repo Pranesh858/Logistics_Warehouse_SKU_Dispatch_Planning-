@@ -114,13 +114,19 @@ export interface DatasetPreview {
 export interface DatasetStatus {
   state: 'idle' | 'ready' | 'running' | 'done' | 'failed' | 'rejected';
   reason?: string;
+  /** What the last run retrained on: an uploaded file, or the history as it stands (Retrain now / the schedule). */
+  kind?: 'upload' | 'history';
   step?: string;
   progress?: number;
   preview?: DatasetPreview | null;
   error?: string | null;
   result?: {
     promoted: boolean;
-    comparison: { wape_before: number | null; wape_after: number; change_pct: number; worse: boolean; holdout_days: number };
+    comparison: {
+      wape_before: number | null; wape_after: number; change_pct: number; worse: boolean; holdout_days: number;
+      /** The history was the bundled 120-day sample (no full sales file), so a new model is bound to score worse. */
+      history_is_sample?: boolean;
+    };
     left_out: number;
     products?: number;
     history_to?: string;

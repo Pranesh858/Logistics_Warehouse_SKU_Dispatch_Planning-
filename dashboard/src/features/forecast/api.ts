@@ -19,7 +19,8 @@ export const forecastApi = {
     form.append('file', file);
     return apiClient.post<DatasetStatus>('/api/v1/forecast/dataset/check', form, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data);
   },
-  datasetRetrain: () => apiClient.post<DatasetStatus>('/api/v1/forecast/dataset/retrain').then((r) => r.data),
+  datasetRetrain: (force: boolean = false) =>
+    apiClient.post<DatasetStatus>(`/api/v1/forecast/dataset/retrain?force=${force}`).then((r) => r.data),
   datasetApply: (force: boolean) => apiClient.post<DatasetStatus>(`/api/v1/forecast/dataset/apply?force=${force}`).then((r) => r.data),
   datasetDiscard: () => apiClient.delete<DatasetStatus>('/api/v1/forecast/dataset/check').then((r) => r.data),
 };

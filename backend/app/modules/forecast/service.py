@@ -9,9 +9,7 @@ from app.shared.exceptions import BadRequestError
 
 
 def list_skus() -> list[dict]:
-    snap = runtime.stock_snapshot()
-    cat = runtime.frame.drop_duplicates(["product_id", "warehouse_id"])[["product_id", "warehouse_id", "category"]]
-    snap = snap.merge(cat, on=["product_id", "warehouse_id"], how="left")
+    snap = runtime.stock_snapshot().merge(runtime.sku_info()[["product_id", "category"]], on="product_id", how="left")
     return json.loads(snap.sort_values(["product_id", "warehouse_id"]).to_json(orient="records"))
 
 
@@ -71,7 +69,7 @@ def accuracy_report(warehouse_id: str | None = None) -> dict:
     if not path.exists():
         raise FileNotFoundError(path)
     report = json.loads(path.read_text(encoding="utf-8"))
-    names = runtime.frame.drop_duplicates("product_id").set_index("product_id")["product_name"].to_dict()
+    names = runtime.sku_info().set_index("product_id")["product_name"].to_dict()
     for r in report["by_sku"]:
         r["product_name"] = names.get(r["product_id"], f"SKU {r['product_id']}")
     return report if not warehouse_id else _accuracy_for_warehouse(report, warehouse_id)

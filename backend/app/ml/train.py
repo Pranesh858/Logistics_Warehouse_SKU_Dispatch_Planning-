@@ -238,6 +238,7 @@ def backup_dir() -> Path:
 # The accuracy report describes one particular model, so it is backed up and rolled back with it. A report
 # left behind by a different model is worse than none: it reads as a measurement when it is a leftover.
 ARTIFACTS = ("model_path", "model_metadata_path", "dataset_path", "backtest_path")
+NO_FULL_HISTORY = "NO_FULL_HISTORY"      # marker in a backup taken while the history was the bundled sample
 
 
 def promote(model, merged_raw: pd.DataFrame, frame: pd.DataFrame, comparison: dict) -> str:
@@ -247,6 +248,10 @@ def promote(model, merged_raw: pd.DataFrame, frame: pd.DataFrame, comparison: di
         p = getattr(settings, name)
         if Path(p).exists():
             shutil.copy2(p, dest / Path(p).name)
+    if not Path(settings.dataset_path).exists():
+        # The history was the bundled sample (a fresh clone). Below it is written to the full path; remember that
+        # there was nothing there, so a rollback removes it and the app reads the sample again.
+        (dest / NO_FULL_HISTORY).write_text("the sales history was the bundled sample\n", encoding="utf-8")
 
     meta = json.loads(Path(settings.model_metadata_path).read_text(encoding="utf-8"))
     train = prepare_dataset(frame)
@@ -277,3 +282,5 @@ def rollback(backup: str) -> None:
         p = getattr(settings, name)
         if (src / Path(p).name).exists():
             shutil.copy2(src / Path(p).name, p)
+    if (src / NO_FULL_HISTORY).exists():
+        Path(settings.dataset_path).unlink(missing_ok=True)

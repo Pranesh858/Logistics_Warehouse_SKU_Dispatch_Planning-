@@ -87,6 +87,22 @@ cp .env.example .env.local
 
 ---
 
+## Docker
+
+The whole system (database, API and this dashboard) starts with one `docker compose up --build` from the backend
+project; see *Running with Docker* in its README. This folder's `Dockerfile` builds the dashboard on its own:
+
+```bash
+docker build --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 -t dispatch-dashboard .
+docker run -p 3000:3000 dispatch-dashboard
+```
+
+`NEXT_PUBLIC_*` values are built into the JavaScript, so they are build arguments: changing the API address means
+building again. The address is the one the browser uses to reach the API. `next.config.ts` sets `output: 'standalone'`
+so the image holds only the built server, not `node_modules`.
+
+---
+
 ## Design system
 
 All components use the design tokens. Key Tailwind classes:

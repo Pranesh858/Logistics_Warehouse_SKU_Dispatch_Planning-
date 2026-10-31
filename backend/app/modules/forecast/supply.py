@@ -97,7 +97,12 @@ async def on_order(db: AsyncSession) -> dict[tuple[int, str], float]:
 
 
 async def receive(db: AsyncSession, po_id: int, user: str) -> PurchaseOrder:
-    """The goods arrived. They stop counting as on order; the WMS stock feed reports the new shelf figure."""
+    """The goods arrived: they stop counting as on order and go onto the shelf, as a RECEIPT on the stock ledger.
+    Where a WMS feed is connected its next report overwrites the figure with the authoritative count."""
+    from app.modules.dispatch import service as dispatch_service
+    from app.modules.stock import service as stock_ledger
+    from app.modules.stock.models import RECEIPT
+
     po = await db.get(PurchaseOrder, po_id)
     if po is None:
         raise NotFoundError("Purchase order not found")
@@ -108,5 +113,9 @@ async def receive(db: AsyncSession, po_id: int, user: str) -> PurchaseOrder:
     po.received_at = datetime.now()
     po.received_by = user
     await db.commit()
+    moves = [stock_ledger.Move(int(ln["product_id"]), po.warehouse_id, float(ln["units"]), RECEIPT, ref=po.po_ref)
+             for ln in po.lines or []]
+    if await stock_ledger.apply(db, moves, source="purchase", username=user):
+        await dispatch_service.recommend_plan(db, trigger="purchase_received")
     await db.refresh(po)
     return po

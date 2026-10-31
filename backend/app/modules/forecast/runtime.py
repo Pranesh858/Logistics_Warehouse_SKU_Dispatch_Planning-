@@ -1,4 +1,4 @@
-"""Loads the trained model and sales history once and keeps them in memory."""
+"""Loads the trained model and sales history once and keeps them in memory, with a copy of the stock tables."""
 import threading
 
 import pandas as pd
@@ -13,7 +13,11 @@ class MlRuntime:
         self._model = None
         self._meta = None
         self._frame: pd.DataFrame | None = None
-        self._live_stock: dict[tuple[int, str], float] = {}     # stock reported by the WMS, wins over the sales history
+        # A copy of the stock and master tables, so the planning code (which runs in threads) can read them
+        # without a database session. The tables are the truth; app.modules.stock refreshes this after every write.
+        self._stock: dict[tuple[int, str], float] = {}
+        self._cities: dict[str, str] = {}
+        self._skus: dict[int, dict] = {}
 
     def _ensure(self):
         with self._lock:
@@ -38,21 +42,26 @@ class MlRuntime:
         return self._frame
 
     def stock_snapshot(self) -> pd.DataFrame:
-        """Latest stock_on_hand per SKU x warehouse."""
-        latest = self.frame.sort_values("date").groupby(["product_id", "warehouse_id"], as_index=False).tail(1)
-        snap = latest[["product_id", "warehouse_id", "city", "stock_on_hand"]].reset_index(drop=True)
-        live = self._live_stock
-        if live:
-            keys = list(zip(snap["product_id"], snap["warehouse_id"]))
-            snap["stock_on_hand"] = [live.get(k, v) for k, v in zip(keys, snap["stock_on_hand"])]
-        return snap
+        """Stock on hand per SKU x warehouse, from the stock table. Every stocked pair has a row."""
+        rows = [{"product_id": p, "warehouse_id": w, "city": self._cities.get(w), "stock_on_hand": q}
+                for (p, w), q in sorted(self._stock.items())]
+        return pd.DataFrame(rows, columns=["product_id", "warehouse_id", "city", "stock_on_hand"])
 
-    def set_live_stock(self, stock: dict[tuple[int, str], float]) -> None:
-        """Stock from the WMS. Replaces the whole set at once so readers never see a half-updated view."""
-        self._live_stock = dict(stock)
+    def sku_info(self) -> pd.DataFrame:
+        """Name and category per SKU, from the SKU table."""
+        rows = [{"product_id": p, "product_name": v["product_name"], "category": v["category"]}
+                for p, v in sorted(self._skus.items())]
+        return pd.DataFrame(rows, columns=["product_id", "product_name", "category"])
 
-    def live_stock_count(self) -> int:
-        return len(self._live_stock)
+    def set_stock(self, stock: dict[tuple[int, str], float]) -> None:
+        """Replaces the whole set at once so readers never see a half-updated view."""
+        self._stock = dict(stock)
+
+    def set_master(self, skus: dict[int, dict], cities: dict[str, str]) -> None:
+        self._skus, self._cities = dict(skus), dict(cities)
+
+    def stock_count(self) -> int:
+        return len(self._stock)
 
     def reset(self):
         with self._lock:

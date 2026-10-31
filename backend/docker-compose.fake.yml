@@ -1,0 +1,33 @@
+# Adds the fake WMS and ERP (fake_systems/) and connects the API to them:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.fake.yml up --build
+#
+# Approved orders then go to the fake WMS over HTTP, and its /control endpoints (http://localhost:9100/docs)
+# make things happen: ship orders, change stock, take the WMS down. Inside Docker the two find each other by
+# service name; port 9100 is published only so you can reach /control from your machine.
+services:
+  fake:
+    build: .
+    command: ["python", "-m", "fake_systems", "--host", "0.0.0.0", "--port", "9100",
+              "--app-url", "http://api:8000", "--app-key", "demo-key"]
+    ports:
+      - "${FAKE_PORT:-9100}:9100"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/docs', timeout=4)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+  api:
+    environment:
+      WMS_BASE_URL: http://fake:9100/wms
+      WMS_API_KEY: wms-key
+      ERP_BASE_URL: http://fake:9100/erp
+      ERP_API_KEY: erp-key
+      INTEGRATION_WEBHOOK_KEY: demo-key
+    depends_on:
+      fake:
+        condition: service_healthy

@@ -33,7 +33,6 @@ def upgrade() -> None:
         sa.Column('resolved_note', sa.Text(), nullable=True),
         sa.Column('delivery', sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('dedupe_key'),
     )
     op.create_index('ix_alerts_dedupe_key', 'alerts', ['dedupe_key'], unique=True)
     op.create_index('ix_alerts_kind', 'alerts', ['kind'])

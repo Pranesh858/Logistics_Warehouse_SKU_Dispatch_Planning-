@@ -21,12 +21,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.dispatch import engine, stockview
+from app.modules.dispatch import engine
 from app.modules.dispatch.models import (
     TRANSFER_CANCELLED, TRANSFER_IN_TRANSIT, TRANSFER_PROPOSED, TRANSFER_RECEIVED,
     BlockedSku, LedgerEntry, PlanLine, StockTransfer, TransferLane,
 )
 from app.modules.forecast.runtime import runtime
+from app.modules.stock import service as stock_ledger
+from app.modules.stock.models import TRANSFER_IN, TRANSFER_OUT, TRANSFER_RETURN
 from app.shared.exceptions import BadRequestError, NotFoundError
 
 DEMAND_WINDOW_DAYS = 28
@@ -98,8 +100,10 @@ async def _plan_frame(db: AsyncSession, plan) -> pd.DataFrame:
     return df
 
 
-def _ref(dest: str) -> str:
-    return f"TR-{dest}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
+def _ref(dest: str, n: int) -> str:
+    """n numbers the proposals of one rebuild, which often raises several for the same warehouse in the same second:
+    with a random part alone two of them could collide and the unique ref would fail the whole rebuild."""
+    return f"TR-{dest}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{n:02d}{secrets.token_hex(3).upper()}"
 
 
 # ----------------------------------------------------------------- proposals
@@ -128,9 +132,9 @@ async def refresh_proposals(db: AsyncSession, plan) -> int:
             default_days=settings.default_transfer_days, keep_days=settings.transfer_keep_days,
             min_units=settings.min_transfer_units, now=datetime.now(), blocked=blocked, incoming=coming,
         ))
-    for r in proposals.itertuples():
+    for n, r in enumerate(proposals.itertuples()):
         db.add(StockTransfer(
-            transfer_ref=_ref(r.to_warehouse_id), product_id=int(r.product_id),
+            transfer_ref=_ref(r.to_warehouse_id, n), product_id=int(r.product_id),
             from_warehouse_id=r.from_warehouse_id, to_warehouse_id=r.to_warehouse_id, qty=float(r.qty),
             transit_days=int(r.transit_days), status=TRANSFER_PROPOSED, reason=r.reason,
             short_orders=int(r.short_orders), earliest_due=pd.Timestamp(r.earliest_due).to_pydatetime(),
@@ -210,7 +214,7 @@ async def approve(db: AsyncSession, transfer_id: int, user: str, warehouse_id: s
     t.approved_by, t.approved_at = user, datetime.now()
     t.eta = datetime.now() + timedelta(days=int(t.transit_days))
     await db.commit()
-    await stockview.apply_delta(db, {(int(t.product_id), t.from_warehouse_id): -float(t.qty)}, "transfer")
+    await _move(db, t, t.from_warehouse_id, -float(t.qty), TRANSFER_OUT, user)
     await _replan(db, "transfer_approved")
     await db.refresh(t)
     return view(t)
@@ -224,7 +228,7 @@ async def receive(db: AsyncSession, transfer_id: int, user: str, warehouse_id: s
     t.status = TRANSFER_RECEIVED
     t.received_by, t.received_at = user, datetime.now()
     await db.commit()
-    await stockview.apply_delta(db, {(int(t.product_id), t.to_warehouse_id): float(t.qty)}, "transfer")
+    await _move(db, t, t.to_warehouse_id, float(t.qty), TRANSFER_IN, user)
     await _replan(db, "transfer_received")
     await db.refresh(t)
     return view(t)
@@ -241,10 +245,17 @@ async def cancel(db: AsyncSession, transfer_id: int, user: str, reason: str = ""
     t.cancelled_by, t.cancel_reason = user, reason.strip()
     await db.commit()
     if was_sent:
-        await stockview.apply_delta(db, {(int(t.product_id), t.from_warehouse_id): float(t.qty)}, "transfer")
+        await _move(db, t, t.from_warehouse_id, float(t.qty), TRANSFER_RETURN, user, reason)
         await _replan(db, "transfer_cancelled")
     await db.refresh(t)
     return view(t)
+
+
+async def _move(db: AsyncSession, t: StockTransfer, warehouse_id: str, qty: float, kind: str, user: str,
+                reason: str = "") -> None:
+    """One leg of the transfer on the stock ledger, referenced by the transfer so the two legs can be matched."""
+    await stock_ledger.apply(db, [stock_ledger.Move(int(t.product_id), warehouse_id, qty, kind, ref=t.transfer_ref)],
+                             source="transfer", username=user, reason=reason)
 
 
 async def spare_now(db: AsyncSession, product_id: int, warehouse_id: str) -> float:

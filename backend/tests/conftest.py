@@ -1,9 +1,19 @@
 import os
 import tempfile
 
-# Must be set before the app is imported. Tests use SQLite so no Postgres is needed.
-_db = os.path.join(tempfile.mkdtemp(), "test.db")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_db}"
+# Must be set before the app is imported. Tests use SQLite so no database server is needed. To run them on
+# PostgreSQL instead, set TEST_DATABASE_URL to a database made for the purpose: every test drops all its tables.
+_url = os.environ.get("TEST_DATABASE_URL", "")
+if _url:
+    if not _url.rsplit("/", 1)[-1].endswith("_test"):
+        raise RuntimeError("TEST_DATABASE_URL must name a database ending in _test: the tests drop every table in it.")
+else:
+    _url = f"sqlite+aiosqlite:///{os.path.join(tempfile.mkdtemp(), 'test.db')}"
+os.environ["DATABASE_URL"] = _url
+# Tests run each request in its own event loop (a second TestClient has its own), and a PostgreSQL connection
+# cannot be used from a loop other than the one that opened it. SQLite does not mind, so this only shows there.
+if not _url.startswith("sqlite"):
+    os.environ["DB_NULL_POOL"] = "true"
 os.environ["DEFAULT_TRUCK_CAPACITY"] = "100000"   # old tests: trucks never limit the plan
 os.environ["WARM_FORECAST_ON_STARTUP"] = "false"  # tests compute on demand
 os.environ["PASSWORD_ITERATIONS"] = "1000"        # fast password hashing in tests
@@ -41,7 +51,7 @@ def anon():
     set_wms_client(None)
     from app.integrations import clients
     from app.modules.forecast.runtime import runtime
-    runtime.set_live_stock({})
+    runtime.set_stock({})
     for feed in ("inventory", "orders", "sales", "purchasing"):
         clients.set_client(feed, None)
     clients.reset_simulators()

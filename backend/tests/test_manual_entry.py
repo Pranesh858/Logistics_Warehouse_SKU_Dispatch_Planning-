@@ -10,9 +10,9 @@ from sqlalchemy import select
 
 from app.core.audit import AuditEntry
 from app.core.database import AsyncSessionLocal
-from app.integrations import service as integration_service
 from app.integrations.models import StockLevel
 from app.modules.forecast.runtime import runtime
+from app.modules.stock import service as stock_service
 from tests.conftest import sign_in
 
 API = "/api/v1"
@@ -24,8 +24,8 @@ def a_sku(client, warehouse=None):
 
 
 def stock_of(client, pid, wh):
-    return next(s["stock_on_hand"] for s in client.get(f"{API}/forecast/skus").json()
-                if s["product_id"] == pid and s["warehouse_id"] == wh)
+    return next((s["stock_on_hand"] for s in client.get(f"{API}/forecast/skus").json()
+                 if s["product_id"] == pid and s["warehouse_id"] == wh), None)
 
 
 def order(order_id, sku, qty, tier="Standard"):
@@ -61,13 +61,13 @@ def test_the_count_is_kept_in_the_database_and_survives_a_restart(client):
 
     assert client.portal.call(stored) == (654, "manual")
 
-    # what a restart does: the in-memory view is gone, the overlay is read back from the table
-    runtime.set_live_stock({})
+    # what a restart does: the in-memory copy is gone, and is read back from the table
+    runtime.set_stock({})
     assert stock_of(client, sku["product_id"], sku["warehouse_id"]) != 654
 
     async def reload():
         async with AsyncSessionLocal() as db:
-            return await integration_service.load_overlay(db)
+            return await stock_service.load_cache(db)
 
     assert client.portal.call(reload) >= 1
     assert stock_of(client, sku["product_id"], sku["warehouse_id"]) == 654

@@ -27,7 +27,7 @@ def test_inventory_sync_changes_stock_and_plan(client):
     r = client.post(f"{API}/integrations/sync/inventory").json()
     assert r["status"] == "OK" and r["rows"] == len(before)
     after = {(s["product_id"], s["warehouse_id"]): s["stock_on_hand"] for s in client.get(f"{API}/forecast/skus").json()}
-    assert after != before and runtime.live_stock_count() == len(before)
+    assert after != before and runtime.stock_count() == len(before)
     st = client.get(f"{API}/integrations/status").json()
     assert st["feeds"][0]["last"]["status"] == "OK" and st["live_stock_skus"] == len(before)
 

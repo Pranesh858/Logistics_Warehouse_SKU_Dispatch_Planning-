@@ -1,0 +1,22 @@
+# Kept out of the image. Secrets, local databases and the large sales history never go in; docker-compose.yml
+# mounts ./data at run time, so the full CSV is used when it is there.
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.sqlite3
+.git/
+.gitignore
+
+data/quick_commerce_with_events_clean.csv
+data/uploads/
+app/ml/artifacts/backups/
+
+tests/
+docs/
+scripts/

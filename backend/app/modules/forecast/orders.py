@@ -82,8 +82,7 @@ def compute(days: int, safety: bool, warehouse_id: str | None, reserved: dict, i
     iv = load_intervals()
 
     snap = runtime.stock_snapshot()
-    info = runtime.frame.drop_duplicates(KEYS)[KEYS + ["product_name", "category"]]
-    meta = snap[KEYS + ["city", "stock_on_hand"]].merge(info, on=KEYS, how="left")
+    meta = snap[KEYS + ["city", "stock_on_hand"]].merge(runtime.sku_info(), on="product_id", how="left")
     lookup = {(int(r.product_id), r.warehouse_id): r for r in meta.itertuples()}
 
     rows = []

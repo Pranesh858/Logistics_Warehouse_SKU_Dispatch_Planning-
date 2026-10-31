@@ -182,10 +182,9 @@ def test_committed_lines_do_not_subtract_their_stock_twice():
 
 # ----------------------------------------------------------------- the API, end to end
 #
-# Note on the dataset: every SKU in quick_commerce_with_events_clean.csv is stocked in exactly one
-# warehouse (300 SKUs, 300 SKU x warehouse pairs), so no shortage in it can ever be covered from
-# somewhere else and the engine will never raise a proposal from this data. The rules above are proved
-# on built frames; the tests below seed a transfer directly and prove the part that moves real stock.
+# Note on the dataset: about 25 SKUs are stocked in two warehouses (scripts/make_multiwarehouse.py), and
+# tests/test_multiwarehouse.py proves the engine raises a proposal from the real data. The rules above are
+# proved on built frames; the tests below seed a transfer directly and prove the part that moves real stock.
 API = "/api/v1"
 
 
@@ -397,3 +396,13 @@ def test_only_an_admin_sets_a_transit_lane(anon):
     assert unknown.status_code == 422
 
     assert anon.delete(f"{API}/dispatch/transfer-lanes/{whs[0]}/{whs[1]}").status_code == 204
+
+
+def test_proposals_raised_together_never_share_a_reference(monkeypatch):
+    """One rebuild can raise several proposals for the same warehouse in the same second. The reference must still
+    be unique, or the database refuses the whole rebuild (seen once in a full run before this was fixed)."""
+    from app.modules.dispatch import transfers
+
+    monkeypatch.setattr(transfers.secrets, "token_hex", lambda n: "00" * n)    # the worst luck: no randomness at all
+    refs = [transfers._ref("WH04", n) for n in range(50)]
+    assert len(set(refs)) == len(refs) and max(map(len, refs)) <= 40

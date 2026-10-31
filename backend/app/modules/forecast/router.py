@@ -17,6 +17,7 @@ from app.modules.dispatch import service as dispatch_service
 from app.modules.dispatch.models import LedgerEntry
 from app.modules.forecast import dataset, orders, reports, service, supply
 from app.modules.forecast.schemas import ForecastRequest
+from app.modules.stock import service as stock_service
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
@@ -77,6 +78,7 @@ async def dataset_apply(admin: Admin, force: bool = False):
 
     async def rebuild_plan():
         async with AsyncSessionLocal() as db:
+            await stock_service.register_from_history(db)   # SKU x warehouse pairs new in the upload get stock rows
             await dispatch_service.recommend_plan(db, trigger="dataset_upload")
 
     def done(_result):  # called from the training thread
@@ -87,19 +89,21 @@ async def dataset_apply(admin: Admin, force: bool = False):
 
 
 @router.post("/dataset/retrain")
-async def dataset_retrain(admin: Admin):
-    """Retrain on the sales history as it now stands, without uploading anything."""
+async def dataset_retrain(admin: Admin, force: bool = False):
+    """Retrain on the sales history as it now stands, without uploading anything. force=true keeps the new model
+    even if it scores worse than the one in use (the answer to "the current model was kept")."""
     loop = asyncio.get_running_loop()
 
     async def rebuild_plan():
         async with AsyncSessionLocal() as db:
+            await stock_service.register_from_history(db)
             await dispatch_service.recommend_plan(db, trigger="retrained")
 
     def done(_result):
         orders.warm()
         _a.run_coroutine_threadsafe(rebuild_plan(), loop)
 
-    return await asyncio.to_thread(dataset.start_retrain, done, "manual")
+    return await asyncio.to_thread(dataset.start_retrain, done, "manual", force)
 
 
 @router.get("/dataset/status")

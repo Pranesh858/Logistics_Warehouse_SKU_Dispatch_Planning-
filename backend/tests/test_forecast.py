@@ -3,7 +3,7 @@ API = "/api/v1"
 
 def test_forecast_run_and_ranges(client):
     sk = client.get(f"{API}/forecast/skus").json()
-    assert len(sk) == 300
+    assert len({x["product_id"] for x in sk}) == 300      # 300 SKUs; some are stocked in two warehouses
     pid, wh = sk[0]["product_id"], sk[0]["warehouse_id"]
     r = client.post(f"{API}/forecast/run", json={"days": 7, "product_ids": [pid], "warehouse_ids": [wh]})
     assert r.status_code == 200

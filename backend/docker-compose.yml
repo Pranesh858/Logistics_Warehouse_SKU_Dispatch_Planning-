@@ -1,19 +1,17 @@
+# The whole system: PostgreSQL, the API and the dashboard.
+#
+#   docker compose up --build            then open http://localhost:3000
+#   docker compose up -d db              only the database, for running the API from the .venv (see README)
+#
+# Add the fake WMS/ERP with:  docker compose -f docker-compose.yml -f docker-compose.fake.yml up --build
+#
+# Variables you can set before running (or in a .env file next to this one):
+#   DB_PORT         host port for PostgreSQL (default 5432; 5433 if a PostgreSQL already runs on this machine)
+#   API_PORT        host port for the API (default 8000)
+#   DASHBOARD_PORT  host port for the dashboard (default 3000)
+#   DASHBOARD_DIR   the dashboard project folder (default ../warehouse-dispatch-planning-dashboard)
+#   SECRET_KEY      signs login tokens; set a long random value for anything beyond a demo
 services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/warehouse_dispatch_planning_allocation_backend
-      CORS_ORIGINS: '["http://localhost:3000"]'
-      DEBUG: "true"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
   db:
     image: postgres:16-alpine
     environment:
@@ -21,7 +19,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: warehouse_dispatch_planning_allocation_backend
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"      # set DB_PORT=5433 if a PostgreSQL is already running on this machine
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -30,5 +28,38 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/warehouse_dispatch_planning_allocation_backend
+      CORS_ORIGINS: '["http://localhost:${DASHBOARD_PORT:-3000}"]'
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-value}
+      DEBUG: "false"
+    volumes:
+      # Seed files, the full sales history if you have it, and uploads all live in ./data on your machine.
+      - ./data:/app/data
+      # A retrained model is kept across restarts. The volume starts as a copy of the model in the image;
+      # remove it (docker compose down -v) to go back to that one.
+      - models:/app/app/ml/artifacts
+    depends_on:
+      db:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ${DASHBOARD_DIR:-../warehouse-dispatch-planning-dashboard}
+      args:
+        # The browser calls the API, so this is the address on your machine, not the service name.
+        NEXT_PUBLIC_API_URL: http://localhost:${API_PORT:-8000}
+        NEXT_PUBLIC_DEMO_HINT: "true"
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  models:

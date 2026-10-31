@@ -1,0 +1,301 @@
+product_id,product_name,category,is_organic,shelf_life_days,weight_g
+1,Wheat Flour Premium 1500g,Grocery,False,365,1500
+2,Paneer Value 1500g,Dairy,False,21,1500
+3,Cookies Family Pack 1500g,Snacks,False,180,1500
+4,Coffee Daily 250g,Beverages,True,270,250
+5,Deodorant Fresh 500g,Personal Care,False,540,500
+6,Detergent Classic 100g,Household,False,365,100
+7,Bun Premium 2000g,Bakery,False,5,2000
+8,Apple Value 50g,Fruits & Vegetables,True,7,50
+9,Wheat Flour Family Pack 50g,Grocery,False,365,50
+10,Butter Daily 750g,Dairy,False,21,750
+11,Crackers Fresh 500g,Snacks,False,180,500
+12,Energy Drink Classic 500g,Beverages,True,270,500
+13,Soap Premium 1000g,Personal Care,False,540,1000
+14,Floor Cleaner Value 250g,Household,False,365,250
+15,Muffin Family Pack 1500g,Bakery,False,5,1500
+16,Apple Daily 200g,Fruits & Vegetables,False,7,200
+17,Wheat Flour Fresh 100g,Grocery,False,365,100
+18,Cheese Classic 250g,Dairy,False,21,250
+19,Biscuits Premium 1000g,Snacks,False,180,1000
+20,Soft Drink Value 500g,Beverages,False,270,500
+21,Face Wash Family Pack 100g,Personal Care,False,540,100
+22,Garbage Bags Daily 200g,Household,True,365,200
+23,Pav Fresh 1000g,Bakery,False,5,1000
+24,Apple Classic 750g,Fruits & Vegetables,False,7,750
+25,Wheat Flour Premium 500g,Grocery,False,365,500
+26,Yogurt Value 250g,Dairy,False,21,250
+27,Cookies Family Pack 250g,Snacks,False,180,250
+28,Cola Daily 5000g,Beverages,True,270,5000
+29,Deodorant Fresh 2000g,Personal Care,False,540,2000
+30,Detergent Classic 100g,Household,False,365,100
+31,Bun Premium 1500g,Bakery,True,5,1500
+32,Apple Value 500g,Fruits & Vegetables,True,7,500
+33,Wheat Flour Family Pack 1500g,Grocery,False,365,1500
+34,Lassi Daily 1000g,Dairy,False,21,1000
+35,Crackers Fresh 100g,Snacks,True,180,100
+36,Juice Classic 2000g,Beverages,True,270,2000
+37,Soap Premium 2000g,Personal Care,False,540,2000
+38,Floor Cleaner Value 250g,Household,False,365,250
+39,Muffin Family Pack 100g,Bakery,False,5,100
+40,Apple Daily 50g,Fruits & Vegetables,False,7,50
+41,Wheat Flour Fresh 1500g,Grocery,False,365,1500
+42,Milk Classic 250g,Dairy,False,21,250
+43,Biscuits Premium 2000g,Snacks,False,180,2000
+44,Water Value 500g,Beverages,False,270,500
+45,Face Wash Family Pack 1000g,Personal Care,False,540,1000
+46,Garbage Bags Daily 50g,Household,False,365,50
+47,Pav Fresh 100g,Bakery,False,5,100
+48,Apple Classic 100g,Fruits & Vegetables,False,7,100
+49,Wheat Flour Premium 5000g,Grocery,False,365,5000
+50,Curd Value 1500g,Dairy,False,21,1500
+51,Cookies Family Pack 5000g,Snacks,False,180,5000
+52,Tea Daily 5000g,Beverages,True,270,5000
+53,Deodorant Fresh 1500g,Personal Care,False,540,1500
+54,Detergent Classic 2000g,Household,True,365,2000
+55,Bun Premium 100g,Bakery,False,5,100
+56,Apple Value 1000g,Fruits & Vegetables,False,7,1000
+57,Wheat Flour Family Pack 5000g,Grocery,False,365,5000
+58,Paneer Daily 200g,Dairy,False,21,200
+59,Crackers Fresh 500g,Snacks,False,180,500
+60,Coffee Classic 100g,Beverages,True,270,100
+61,Soap Premium 250g,Personal Care,False,540,250
+62,Floor Cleaner Value 5000g,Household,False,365,5000
+63,Muffin Family Pack 5000g,Bakery,False,5,5000
+64,Apple Daily 500g,Fruits & Vegetables,False,7,500
+65,Wheat Flour Fresh 500g,Grocery,False,365,500
+66,Butter Classic 500g,Dairy,False,21,500
+67,Biscuits Premium 750g,Snacks,False,180,750
+68,Energy Drink Value 2000g,Beverages,False,270,2000
+69,Face Wash Family Pack 1500g,Personal Care,True,540,1500
+70,Garbage Bags Daily 250g,Household,False,365,250
+71,Pav Fresh 100g,Bakery,False,5,100
+72,Apple Classic 1500g,Fruits & Vegetables,True,7,1500
+73,Wheat Flour Premium 2000g,Grocery,False,365,2000
+74,Cheese Value 250g,Dairy,False,21,250
+75,Cookies Family Pack 200g,Snacks,True,180,200
+76,Soft Drink Daily 200g,Beverages,False,270,200
+77,Deodorant Fresh 500g,Personal Care,False,540,500
+78,Detergent Classic 5000g,Household,False,365,5000
+79,Bun Premium 1000g,Bakery,False,5,1000
+80,Apple Value 500g,Fruits & Vegetables,False,7,500
+81,Wheat Flour Family Pack 500g,Grocery,False,365,500
+82,Yogurt Daily 2000g,Dairy,False,21,2000
+83,Crackers Fresh 5000g,Snacks,False,180,5000
+84,Cola Classic 500g,Beverages,False,270,500
+85,Soap Premium 5000g,Personal Care,True,540,5000
+86,Floor Cleaner Value 1000g,Household,False,365,1000
+87,Muffin Family Pack 1000g,Bakery,False,5,1000
+88,Apple Daily 2000g,Fruits & Vegetables,False,7,2000
+89,Wheat Flour Fresh 500g,Grocery,False,365,500
+90,Lassi Classic 2000g,Dairy,False,21,2000
+91,Biscuits Premium 250g,Snacks,True,180,250
+92,Juice Value 200g,Beverages,False,270,200
+93,Face Wash Family Pack 5000g,Personal Care,False,540,5000
+94,Garbage Bags Daily 1500g,Household,False,365,1500
+95,Pav Fresh 750g,Bakery,False,5,750
+96,Apple Classic 1000g,Fruits & Vegetables,False,7,1000
+97,Wheat Flour Premium 50g,Grocery,True,365,50
+98,Milk Value 200g,Dairy,False,21,200
+99,Cookies Family Pack 200g,Snacks,True,180,200
+100,Water Daily 100g,Beverages,False,270,100
+101,Deodorant Fresh 1500g,Personal Care,False,540,1500
+102,Detergent Classic 250g,Household,True,365,250
+103,Bun Premium 50g,Bakery,False,5,50
+104,Apple Value 750g,Fruits & Vegetables,False,7,750
+105,Wheat Flour Family Pack 1500g,Grocery,False,365,1500
+106,Curd Daily 2000g,Dairy,True,21,2000
+107,Crackers Fresh 2000g,Snacks,False,180,2000
+108,Tea Classic 250g,Beverages,False,270,250
+109,Soap Premium 50g,Personal Care,False,540,50
+110,Floor Cleaner Value 2000g,Household,False,365,2000
+111,Muffin Family Pack 100g,Bakery,False,5,100
+112,Apple Daily 750g,Fruits & Vegetables,False,7,750
+113,Wheat Flour Fresh 1000g,Grocery,False,365,1000
+114,Paneer Classic 250g,Dairy,False,21,250
+115,Biscuits Premium 1000g,Snacks,False,180,1000
+116,Coffee Value 1500g,Beverages,True,270,1500
+117,Face Wash Family Pack 1000g,Personal Care,False,540,1000
+118,Garbage Bags Daily 250g,Household,False,365,250
+119,Pav Fresh 50g,Bakery,False,5,50
+120,Apple Classic 5000g,Fruits & Vegetables,False,7,5000
+121,Wheat Flour Premium 1000g,Grocery,False,365,1000
+122,Butter Value 500g,Dairy,False,21,500
+123,Cookies Family Pack 2000g,Snacks,True,180,2000
+124,Energy Drink Daily 2000g,Beverages,False,270,2000
+125,Deodorant Fresh 1000g,Personal Care,False,540,1000
+126,Detergent Classic 5000g,Household,False,365,5000
+127,Bun Premium 1500g,Bakery,False,5,1500
+128,Apple Value 200g,Fruits & Vegetables,False,7,200
+129,Wheat Flour Family Pack 2000g,Grocery,False,365,2000
+130,Cheese Daily 5000g,Dairy,False,21,5000
+131,Crackers Fresh 100g,Snacks,False,180,100
+132,Soft Drink Classic 2000g,Beverages,False,270,2000
+133,Soap Premium 200g,Personal Care,False,540,200
+134,Floor Cleaner Value 1000g,Household,True,365,1000
+135,Muffin Family Pack 1000g,Bakery,False,5,1000
+136,Apple Daily 750g,Fruits & Vegetables,True,7,750
+137,Wheat Flour Fresh 250g,Grocery,False,365,250
+138,Yogurt Classic 5000g,Dairy,False,21,5000
+139,Biscuits Premium 250g,Snacks,True,180,250
+140,Cola Value 1000g,Beverages,False,270,1000
+141,Face Wash Family Pack 5000g,Personal Care,False,540,5000
+142,Garbage Bags Daily 5000g,Household,False,365,5000
+143,Pav Fresh 5000g,Bakery,False,5,5000
+144,Apple Classic 1000g,Fruits & Vegetables,False,7,1000
+145,Wheat Flour Premium 5000g,Grocery,False,365,5000
+146,Lassi Value 1500g,Dairy,False,21,1500
+147,Cookies Family Pack 50g,Snacks,True,180,50
+148,Juice Daily 250g,Beverages,False,270,250
+149,Deodorant Fresh 5000g,Personal Care,True,540,5000
+150,Detergent Classic 100g,Household,True,365,100
+151,Bun Premium 50g,Bakery,False,5,50
+152,Apple Value 750g,Fruits & Vegetables,True,7,750
+153,Wheat Flour Family Pack 200g,Grocery,False,365,200
+154,Milk Daily 1500g,Dairy,True,21,1500
+155,Crackers Fresh 250g,Snacks,True,180,250
+156,Water Classic 1000g,Beverages,False,270,1000
+157,Soap Premium 1500g,Personal Care,False,540,1500
+158,Floor Cleaner Value 500g,Household,True,365,500
+159,Muffin Family Pack 5000g,Bakery,False,5,5000
+160,Apple Daily 250g,Fruits & Vegetables,False,7,250
+161,Wheat Flour Fresh 5000g,Grocery,True,365,5000
+162,Curd Classic 1000g,Dairy,False,21,1000
+163,Biscuits Premium 50g,Snacks,True,180,50
+164,Tea Value 200g,Beverages,False,270,200
+165,Face Wash Family Pack 500g,Personal Care,True,540,500
+166,Garbage Bags Daily 200g,Household,True,365,200
+167,Pav Fresh 1500g,Bakery,True,5,1500
+168,Apple Classic 100g,Fruits & Vegetables,False,7,100
+169,Wheat Flour Premium 5000g,Grocery,False,365,5000
+170,Paneer Value 100g,Dairy,False,21,100
+171,Cookies Family Pack 1000g,Snacks,False,180,1000
+172,Coffee Daily 500g,Beverages,False,270,500
+173,Deodorant Fresh 750g,Personal Care,False,540,750
+174,Detergent Classic 50g,Household,False,365,50
+175,Bun Premium 100g,Bakery,False,5,100
+176,Apple Value 5000g,Fruits & Vegetables,False,7,5000
+177,Wheat Flour Family Pack 5000g,Grocery,False,365,5000
+178,Butter Daily 250g,Dairy,False,21,250
+179,Crackers Fresh 250g,Snacks,True,180,250
+180,Energy Drink Classic 2000g,Beverages,False,270,2000
+181,Soap Premium 5000g,Personal Care,True,540,5000
+182,Floor Cleaner Value 750g,Household,True,365,750
+183,Muffin Family Pack 750g,Bakery,True,5,750
+184,Apple Daily 5000g,Fruits & Vegetables,False,7,5000
+185,Wheat Flour Fresh 200g,Grocery,True,365,200
+186,Cheese Classic 1500g,Dairy,True,21,1500
+187,Biscuits Premium 5000g,Snacks,False,180,5000
+188,Soft Drink Value 50g,Beverages,False,270,50
+189,Face Wash Family Pack 250g,Personal Care,False,540,250
+190,Garbage Bags Daily 750g,Household,False,365,750
+191,Pav Fresh 2000g,Bakery,False,5,2000
+192,Apple Classic 1000g,Fruits & Vegetables,False,7,1000
+193,Wheat Flour Premium 250g,Grocery,False,365,250
+194,Yogurt Value 5000g,Dairy,False,21,5000
+195,Cookies Family Pack 100g,Snacks,False,180,100
+196,Cola Daily 750g,Beverages,False,270,750
+197,Deodorant Fresh 5000g,Personal Care,False,540,5000
+198,Detergent Classic 500g,Household,False,365,500
+199,Bun Premium 2000g,Bakery,True,5,2000
+200,Apple Value 2000g,Fruits & Vegetables,False,7,2000
+201,Wheat Flour Family Pack 50g,Grocery,False,365,50
+202,Lassi Daily 1500g,Dairy,False,21,1500
+203,Crackers Fresh 250g,Snacks,False,180,250
+204,Juice Classic 750g,Beverages,True,270,750
+205,Soap Premium 200g,Personal Care,False,540,200
+206,Floor Cleaner Value 1500g,Household,True,365,1500
+207,Muffin Family Pack 50g,Bakery,True,5,50
+208,Apple Daily 500g,Fruits & Vegetables,False,7,500
+209,Wheat Flour Fresh 1500g,Grocery,False,365,1500
+210,Milk Classic 50g,Dairy,False,21,50
+211,Biscuits Premium 100g,Snacks,False,180,100
+212,Water Value 250g,Beverages,False,270,250
+213,Face Wash Family Pack 1000g,Personal Care,False,540,1000
+214,Garbage Bags Daily 100g,Household,False,365,100
+215,Pav Fresh 1500g,Bakery,False,5,1500
+216,Apple Classic 1500g,Fruits & Vegetables,False,7,1500
+217,Wheat Flour Premium 100g,Grocery,False,365,100
+218,Curd Value 250g,Dairy,False,21,250
+219,Cookies Family Pack 5000g,Snacks,False,180,5000
+220,Tea Daily 50g,Beverages,False,270,50
+221,Deodorant Fresh 5000g,Personal Care,False,540,5000
+222,Detergent Classic 200g,Household,False,365,200
+223,Bun Premium 50g,Bakery,False,5,50
+224,Apple Value 1000g,Fruits & Vegetables,False,7,1000
+225,Wheat Flour Family Pack 250g,Grocery,False,365,250
+226,Paneer Daily 750g,Dairy,False,21,750
+227,Crackers Fresh 100g,Snacks,False,180,100
+228,Coffee Classic 5000g,Beverages,False,270,5000
+229,Soap Premium 200g,Personal Care,False,540,200
+230,Floor Cleaner Value 250g,Household,False,365,250
+231,Muffin Family Pack 2000g,Bakery,False,5,2000
+232,Apple Daily 50g,Fruits & Vegetables,False,7,50
+233,Wheat Flour Fresh 250g,Grocery,False,365,250
+234,Butter Classic 1500g,Dairy,False,21,1500
+235,Biscuits Premium 2000g,Snacks,False,180,2000
+236,Energy Drink Value 100g,Beverages,True,270,100
+237,Face Wash Family Pack 5000g,Personal Care,False,540,5000
+238,Garbage Bags Daily 1500g,Household,True,365,1500
+239,Pav Fresh 200g,Bakery,False,5,200
+240,Apple Classic 250g,Fruits & Vegetables,False,7,250
+241,Wheat Flour Premium 1000g,Grocery,False,365,1000
+242,Cheese Value 50g,Dairy,False,21,50
+243,Cookies Family Pack 5000g,Snacks,False,180,5000
+244,Soft Drink Daily 500g,Beverages,False,270,500
+245,Deodorant Fresh 750g,Personal Care,True,540,750
+246,Detergent Classic 50g,Household,False,365,50
+247,Bun Premium 200g,Bakery,False,5,200
+248,Apple Value 5000g,Fruits & Vegetables,False,7,5000
+249,Wheat Flour Family Pack 500g,Grocery,False,365,500
+250,Yogurt Daily 5000g,Dairy,False,21,5000
+251,Crackers Fresh 750g,Snacks,False,180,750
+252,Cola Classic 1000g,Beverages,False,270,1000
+253,Soap Premium 200g,Personal Care,True,540,200
+254,Floor Cleaner Value 1000g,Household,True,365,1000
+255,Muffin Family Pack 750g,Bakery,True,5,750
+256,Apple Daily 100g,Fruits & Vegetables,False,7,100
+257,Wheat Flour Fresh 100g,Grocery,True,365,100
+258,Lassi Classic 250g,Dairy,False,21,250
+259,Biscuits Premium 750g,Snacks,False,180,750
+260,Juice Value 500g,Beverages,True,270,500
+261,Face Wash Family Pack 100g,Personal Care,False,540,100
+262,Garbage Bags Daily 750g,Household,True,365,750
+263,Pav Fresh 5000g,Bakery,False,5,5000
+264,Apple Classic 5000g,Fruits & Vegetables,False,7,5000
+265,Wheat Flour Premium 100g,Grocery,False,365,100
+266,Milk Value 200g,Dairy,True,21,200
+267,Cookies Family Pack 50g,Snacks,False,180,50
+268,Water Daily 500g,Beverages,True,270,500
+269,Deodorant Fresh 200g,Personal Care,False,540,200
+270,Detergent Classic 200g,Household,False,365,200
+271,Bun Premium 1000g,Bakery,True,5,1000
+272,Apple Value 750g,Fruits & Vegetables,False,7,750
+273,Wheat Flour Family Pack 250g,Grocery,True,365,250
+274,Curd Daily 500g,Dairy,False,21,500
+275,Crackers Fresh 5000g,Snacks,False,180,5000
+276,Tea Classic 200g,Beverages,False,270,200
+277,Soap Premium 5000g,Personal Care,False,540,5000
+278,Floor Cleaner Value 5000g,Household,False,365,5000
+279,Muffin Family Pack 100g,Bakery,False,5,100
+280,Apple Daily 2000g,Fruits & Vegetables,True,7,2000
+281,Wheat Flour Fresh 500g,Grocery,False,365,500
+282,Paneer Classic 1500g,Dairy,False,21,1500
+283,Biscuits Premium 2000g,Snacks,False,180,2000
+284,Coffee Value 50g,Beverages,True,270,50
+285,Face Wash Family Pack 5000g,Personal Care,False,540,5000
+286,Garbage Bags Daily 250g,Household,False,365,250
+287,Pav Fresh 100g,Bakery,False,5,100
+288,Apple Classic 50g,Fruits & Vegetables,False,7,50
+289,Wheat Flour Premium 2000g,Grocery,False,365,2000
+290,Butter Value 2000g,Dairy,True,21,2000
+291,Cookies Family Pack 500g,Snacks,False,180,500
+292,Energy Drink Daily 5000g,Beverages,False,270,5000
+293,Deodorant Fresh 50g,Personal Care,False,540,50
+294,Detergent Classic 50g,Household,False,365,50
+295,Bun Premium 1500g,Bakery,False,5,1500
+296,Apple Value 500g,Fruits & Vegetables,False,7,500
+297,Wheat Flour Family Pack 500g,Grocery,False,365,500
+298,Cheese Daily 1500g,Dairy,False,21,1500
+299,Crackers Fresh 2000g,Snacks,False,180,2000
+300,Soft Drink Classic 50g,Beverages,False,270,50

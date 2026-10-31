@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     secret_key: str = "change-me-in-production-use-a-long-random-value"      # signs login tokens: set a long random value in .env for any real use
     debug: bool = False
+    db_null_pool: bool = False                      # no connection pool: for tests, which use several event loops
 
     app_env: str = "development"                    # set to "production" to turn on the start-up safety checks
     auto_create_tables: bool = True                 # development and tests; in production use the Alembic migrations
@@ -41,6 +42,12 @@ class Settings(BaseSettings):
     # --- dispatch planning ---
     seed_orders_path: str = str(BASE_DIR / "data/seed_orders.csv")
     seed_orders_on_startup: bool = True        # load sample open orders when the orders table is empty
+    # SKU, warehouse and opening stock master data. Loaded into the tables when they are empty; after that the
+    # tables are the truth and the sales history CSV is only used for the forecast.
+    seed_stock_on_startup: bool = True
+    seed_warehouses_path: str = str(BASE_DIR / "data/seed_warehouses.csv")
+    seed_skus_path: str = str(BASE_DIR / "data/seed_skus.csv")
+    seed_stock_path: str = str(BASE_DIR / "data/seed_stock.csv")
     auto_plan_on_startup: bool = True          # build the first recommended plan without anyone asking
     seed_trucks_on_startup: bool = True        # create sample trucks when none exist yet
     default_truck_capacity: float = 120.0      # units per sample truck
@@ -78,6 +85,8 @@ class Settings(BaseSettings):
     wms_base_url: str = ""
     wms_api_key: str = ""
     wms_max_retries: int = 3
+    wms_timeout_seconds: float = 10.0          # one call to the WMS; a WMS that hangs longer counts as a failed attempt
+    wms_give_up_after: int = 3                 # orders failed in a row before an export stops and leaves the rest for a retry
 
     # --- ERP (orders, sales history, purchase orders) ---
     # Empty = built-in simulator. Set a base URL to talk to the real ERP; see README "Integrations" for the contract.
