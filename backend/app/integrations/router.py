@@ -240,13 +240,15 @@ async def webhook_confirmations(body: ConfirmIn, db: AsyncSession = Depends(get_
 async def webhook_orders(body: OrdersIn, db: AsyncSession = Depends(get_db), x_integration_key: str | None = Header(None)):
     """ERP pushes new customer orders (same body as POST /dispatch/orders). Known or invalid orders are skipped."""
     _check_key(x_integration_key)
-    # With a scheduled order sync the pushed orders wait for it, so a stream of single orders does not produce a
-    # plan version each; without one, the push is the only way orders arrive and the plan is rebuilt at once.
+    # Pushed orders join the plan at the next Generate plan. With AUTO_REPLAN and a scheduled order sync they wait
+    # for that sync, so a stream of single orders does not produce a plan version each; without a schedule, the
+    # push is the only way orders arrive and the plan is rebuilt at once.
     scheduled = config_store.sync_minutes("orders") > 0
     added, skipped = await service.add_erp_orders(db, [o.model_dump(mode="json") for o in body.orders],
                                                   rebuild=not scheduled)
+    when = "the next order sync" if settings.auto_replan else "the next Generate plan"
     await service._log(db, "orders", "webhook", "OK", added, f"{added} orders pushed, {skipped} skipped"
-                       + ("; they join the plan at the next order sync" if added and scheduled else ""))
+                       + (f"; they join the plan at {when}" if added and (scheduled or not settings.auto_replan) else ""))
     return {"added": added, "skipped": skipped}
 
 

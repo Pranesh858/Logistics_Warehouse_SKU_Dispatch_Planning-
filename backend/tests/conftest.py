@@ -17,6 +17,8 @@ if not _url.startswith("sqlite"):
 os.environ["DEFAULT_TRUCK_CAPACITY"] = "100000"   # old tests: trucks never limit the plan
 os.environ["WARM_FORECAST_ON_STARTUP"] = "false"  # tests compute on demand
 os.environ["DISPATCH_WAVES"] = ""                 # old tests plan every open order; wave tests set their own
+os.environ["AUTO_REPLAN"] = "true"                # old tests expect a new plan per event; test_generate_plan and
+                                                  # test_demo_script run the default (Generate plan only)
 os.environ["PASSWORD_ITERATIONS"] = "1000"        # fast password hashing in tests
 
 import pytest

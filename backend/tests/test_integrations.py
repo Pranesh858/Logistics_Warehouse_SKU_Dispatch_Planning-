@@ -99,7 +99,10 @@ def test_purchase_order_flow_and_scoping(client, anon):
     # a planner raises orders for their own warehouse only
     sign_in(anon, "planner.wh01")
     assert anon.post(f"{API}/integrations/purchase-orders", json={"days": 7, "warehouse_id": "WH02"}).status_code == 403
-    mine = anon.post(f"{API}/integrations/purchase-orders", json={"days": 7}).json()
+    # what the first round ordered is on its way: the same week is not ordered twice
+    again = anon.post(f"{API}/integrations/purchase-orders", json={"days": 7, "urgent_only": True})
+    assert again.status_code == 422 and again.json()["detail"] == "Nothing to order for this selection"
+    mine = anon.post(f"{API}/integrations/purchase-orders", json={"days": 28}).json()
     assert {p["warehouse_id"] for p in mine} == {"WH01"}
     assert {p["warehouse_id"] for p in anon.get(f"{API}/integrations/purchase-orders").json()} == {"WH01"}
 

@@ -112,7 +112,7 @@ class Demo:
         f = self.facts
         self.step(1, "An order arrives",
                   f"A customer orders more of SKU {f['product_id']} than {f['dest']} holds. "
-                  f"In the dashboard: Orders and stock, or watch Dispatch refresh.")
+                  f"In the dashboard: Orders and stock, then Generate plan on Dispatch.")
         now = datetime.now().replace(microsecond=0)
         qty = f["dest_stock"] + ORDER_UNITS_OVER_SHELF
         f["order_id"], f["qty"] = f"DEMO-{now:%H%M%S}", qty
@@ -120,7 +120,8 @@ class Demo:
             "order_id": f["order_id"], "order_timestamp": now.isoformat(), "customer_id": "CUST-DEMO",
             "customer_tier": "Premium", "product_id": f["product_id"], "warehouse_id": f["dest"],
             "qty_ordered": qty, "due_date": (now + timedelta(days=5)).isoformat()}]})
-        self.say(f"Order {f['order_id']} for {qty:g} units sent. A new plan is built; nothing ships until approval.")
+        self.call(self.planner(), "POST", "/dispatch/plans/recalculate")
+        self.say(f"Order {f['order_id']} for {qty:g} units sent, then Generate plan. Nothing ships until approval.")
 
     def stock_is_short(self) -> None:
         f = self.facts
@@ -183,7 +184,8 @@ class Demo:
         if abs((dest_after - dest_before) - t["qty"]) > 0.01:
             raise DemoError(f"destination stock went {dest_before:g} -> {dest_after:g}, expected +{t['qty']:g}")
         f["dest_after_receive"] = dest_after
-        self.say(f"Received. {f['dest']} stock {dest_before:g} -> {dest_after:g}; the plan is rebuilt.")
+        self.call(self.planner(), "POST", "/dispatch/plans/recalculate")
+        self.say(f"Received. {f['dest']} stock {dest_before:g} -> {dest_after:g}; Generate plan puts it in the plan.")
         line = next(ln for ln in self.lines(self.planner()) if ln["order_id"] == f["order_id"])
         if line["qty_short"] > 0:
             raise DemoError(f"the order is still short by {line['qty_short']:g} after the transfer arrived")

@@ -1,6 +1,6 @@
 """Dispatch waves: orders go out on the wave whose cut-off they made; later orders move to the next wave."""
 import asyncio
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -12,7 +12,9 @@ from app.modules.dispatch import waves
 
 API = "/api/v1"
 WAVES = "Morning 09:00-10:30; Afternoon 14:00-15:30"
-DAY = "2026-11-02"
+# Two days ahead: the seed orders are moved so the newest arrives now, and none of them may fall in the test's waves.
+DAY = (date.today() + timedelta(days=2)).isoformat()
+NEXT = (date.today() + timedelta(days=3)).isoformat()
 
 
 def at(hhmm: str, day: str = DAY) -> datetime:
@@ -38,18 +40,18 @@ def test_an_order_goes_to_the_first_wave_whose_cut_off_it_made(monkeypatch):
     assert waves.wave_of(at("08:59")).key == f"{DAY} Morning"
     assert waves.wave_of(at("09:00")).key == f"{DAY} Afternoon"        # exactly at the cut-off is too late
     assert waves.wave_of(at("13:59")).key == f"{DAY} Afternoon"
-    assert waves.wave_of(at("14:00")).key == "2026-11-03 Morning"      # after the last cut-off: next morning
-    assert waves.wave_of(at("23:30")).key == "2026-11-03 Morning"
+    assert waves.wave_of(at("14:00")).key == f"{NEXT} Morning"      # after the last cut-off: next morning
+    assert waves.wave_of(at("23:30")).key == f"{NEXT} Morning"
 
 
 def test_the_plan_is_for_the_first_wave_whose_trucks_have_not_left(monkeypatch):
     monkeypatch.setattr(settings, "dispatch_waves", WAVES)
     assert waves.current(at("09:45")).key == f"{DAY} Morning"          # after its cut-off, before its trucks leave
     assert waves.current(at("10:30")).key == f"{DAY} Afternoon"
-    assert waves.current(at("15:30")).key == "2026-11-03 Morning"
+    assert waves.current(at("15:30")).key == f"{NEXT} Morning"
     w = waves.current(at("08:00"))
     assert (w.cutoff, w.departure) == (at("09:00"), at("10:30"))
-    assert waves.following(waves.current(at("12:00"))).key == "2026-11-03 Morning"
+    assert waves.following(waves.current(at("12:00"))).key == f"{NEXT} Morning"
     assert [x.key for x in waves.cutoffs_between(at("08:00"), at("14:00"))] == [f"{DAY} Morning", f"{DAY} Afternoon"]
 
 

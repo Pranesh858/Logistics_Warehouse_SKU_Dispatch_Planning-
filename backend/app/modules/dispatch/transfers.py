@@ -273,7 +273,7 @@ async def spare_now(db: AsyncSession, product_id: int, warehouse_id: str) -> flo
 
 async def _replan(db: AsyncSession, trigger: str) -> None:
     from app.modules.dispatch import service as dispatch_service
-    await dispatch_service.recommend_plan(db, trigger=trigger)
+    await dispatch_service.note_change(db, trigger)
 
 
 # ----------------------------------------------------------------- lanes

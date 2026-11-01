@@ -8,13 +8,11 @@ from pydantic import BaseModel, Field
 
 from app.core.audit import record
 from app.core.auth import Admin, CurrentUser, ensure_warehouse, pick_warehouse, scope
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.modules.dispatch import service as dispatch_service
-from app.modules.dispatch.models import LedgerEntry
 from app.modules.forecast import dataset, orders, reports, service, supply
 from app.modules.forecast.schemas import ForecastRequest
 from app.modules.stock import service as stock_service
@@ -79,7 +77,7 @@ async def dataset_apply(admin: Admin, force: bool = False):
     async def rebuild_plan():
         async with AsyncSessionLocal() as db:
             await stock_service.register_from_history(db)   # SKU x warehouse pairs new in the upload get stock rows
-            await dispatch_service.recommend_plan(db, trigger="dataset_upload")
+            await dispatch_service.note_change(db, "dataset_upload")
 
     def done(_result):  # called from the training thread
         orders.warm()
@@ -97,7 +95,7 @@ async def dataset_retrain(admin: Admin, force: bool = False):
     async def rebuild_plan():
         async with AsyncSessionLocal() as db:
             await stock_service.register_from_history(db)
-            await dispatch_service.recommend_plan(db, trigger="retrained")
+            await dispatch_service.note_change(db, "retrained")
 
     def done(_result):
         orders.warm()
@@ -117,21 +115,10 @@ async def dataset_discard(admin: Admin):
 
 
 # ---- units to order and downloadable reports --------------------------------------------------------------------------
-async def _reserved(db: AsyncSession) -> dict:
-    """Stock already promised to approved orders, per SKU x warehouse."""
-    q = (select(LedgerEntry.product_id, LedgerEntry.warehouse_id, func.sum(LedgerEntry.qty_committed))
-         .where(LedgerEntry.fulfilment == "RESERVED")
-         .group_by(LedgerEntry.product_id, LedgerEntry.warehouse_id))
-    return {(p, w): float(q_) for p, w, q_ in (await db.execute(q)).all()}
-
-
 async def _needs(user, db, days, safety, warehouse_id, include_all=False):
     wh = pick_warehouse(user, warehouse_id)
-    reserved = await _reserved(db)
-    leads = await supply.lead_times(db)
-    coming = await supply.on_order(db)
-    return await asyncio.to_thread(orders.compute, days, safety, wh, reserved, include_all, leads,
-                                   settings.default_lead_time_days, coming)
+    inputs = await supply.order_inputs(db)
+    return await asyncio.to_thread(lambda: orders.compute(days, safety, wh, include_all=include_all, **inputs))
 
 
 @router.get("/orders")

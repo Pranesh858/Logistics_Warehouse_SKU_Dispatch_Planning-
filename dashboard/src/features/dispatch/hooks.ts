@@ -31,7 +31,8 @@ export const useWarehouseList = () => useQuery({ queryKey: [...KEY, 'warehouses'
 
 function useInvalidate() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: KEY });
+  // Units to order counts the customers each plan leaves waiting, so a new or changed plan changes that list too
+  return () => Promise.all([qc.invalidateQueries({ queryKey: KEY }), qc.invalidateQueries({ queryKey: ['forecast', 'orders'] })]);
 }
 
 export function useReviewLine(planId: number) {

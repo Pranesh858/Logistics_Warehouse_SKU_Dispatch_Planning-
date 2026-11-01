@@ -14,6 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from demo_run import Demo  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def generate_plan_only(monkeypatch):
+    """The demo runs as the app does by default: plans are built when the planner presses Generate plan."""
+    monkeypatch.setattr(settings, "auto_replan", False)
+
+
 def run_story(client, webhook_key=""):
     said = []
     facts = Demo(client, say=said.append, webhook_key=webhook_key).run()

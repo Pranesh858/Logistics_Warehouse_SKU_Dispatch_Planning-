@@ -29,6 +29,12 @@ def _level(available: float, cover: float | None, lead: int) -> str:
     return LEVELS[2]
 
 
+def cover_of(available: float, period_units: float, days: int) -> float | None:
+    """Days the free stock lasts at the forecast rate; None when nothing is expected to sell."""
+    daily = period_units / days if days else 0
+    return round(available / daily, 1) if daily > 0 else None
+
+
 _cache: dict = {}
 _cache_lock = threading.Lock()
 MAX_DAYS = max(PERIODS) + 30            # the longest period plus the longest lead time we allow
@@ -56,19 +62,22 @@ def warm() -> None:
 
 def compute(days: int, safety: bool, warehouse_id: str | None, reserved: dict, include_all: bool = False,
             lead_times: dict[int, int] | None = None, default_lead: int | None = None,
-            on_order: dict | None = None) -> dict:
+            on_order: dict | None = None, waiting: dict | None = None) -> dict:
     """Rows are SKU x warehouse.
 
         cover days   = supplier lead time + the chosen period
         units needed = forecast over those days (upper end of the 80% range when `safety`)
+                       + units customers already ordered that the current plan cannot fill (`waiting`)
                        - stock free to sell (on hand, less what approved orders already hold)
                        - units already on order and not yet received
                        never below zero
+    A SKU with customers waiting is always "Order now": they are short today, whatever the forecast says.
     """
     if days not in PERIODS:
         raise BadRequestError("Choose 7, 14 or 28 days")
     lead_times = lead_times or {}
     on_order = on_order or {}
+    waiting = waiting or {}
     default_lead = settings.default_lead_time_days if default_lead is None else default_lead
     horizon = min(days + max([default_lead, *lead_times.values()], default=default_lead), MAX_DAYS)
     try:
@@ -99,12 +108,16 @@ def compute(days: int, safety: bool, warehouse_id: str | None, reserved: dict, i
         on_hand = float(getattr(info_row, "stock_on_hand", 0) or 0)
         held = float(reserved.get((pid, wh), 0.0))
         coming = float(on_order.get((pid, wh), 0.0))
+        short = float(waiting.get((pid, wh), 0.0))
         available = max(on_hand - held, 0.0)
         planning = high if safety else expected
-        need = max(0, math.ceil(planning - available - coming))
+        need = max(0, math.ceil(planning + short - available - coming))
+        if need:
+            priority = LEVELS[0] if short > 0 else _level(available, cover_of(available, period_only, days), lead)
+        else:
+            priority = "Covered"
 
-        daily = period_only / days if days else 0
-        cover = round(available / daily, 1) if daily > 0 else None
+        cover = cover_of(available, period_only, days)
         rows.append({
             "product_id": pid, "product_name": getattr(info_row, "product_name", None),
             "category": getattr(info_row, "category", None), "warehouse_id": wh,
@@ -112,12 +125,13 @@ def compute(days: int, safety: bool, warehouse_id: str | None, reserved: dict, i
             "forecast_units": round(expected, 1), "forecast_high": round(high, 1),
             "period_units": round(period_only, 1), "lead_time_days": lead, "cover_days": window,
             "stock_on_hand": round(on_hand, 1), "reserved": round(held, 1), "on_order": round(coming, 1),
-            "available": round(available, 1), "days_of_cover": cover,
-            "units_to_order": need, "priority": _level(available, cover, lead) if need else "Covered",
+            "available": round(available, 1), "days_of_cover": cover, "waiting": round(short, 1),
+            "units_to_order": need, "priority": priority,
         })
     order = {k: i for i, k in enumerate(LEVELS + ["Covered"])}
-    rows.sort(key=lambda x: (order[x["priority"]], x["days_of_cover"] if x["days_of_cover"] is not None else 1e9,
-                             -x["units_to_order"]))
+    # customers already waiting come first within "Order now"
+    rows.sort(key=lambda x: (order[x["priority"]], x["waiting"] <= 0,
+                             x["days_of_cover"] if x["days_of_cover"] is not None else 1e9, -x["units_to_order"]))
     todo = [x for x in rows if x["units_to_order"] > 0]
     by_wh = {}
     for x in todo:
@@ -136,6 +150,8 @@ def compute(days: int, safety: bool, warehouse_id: str | None, reserved: dict, i
             "skus_to_order": len(todo), "units_to_order": int(sum(x["units_to_order"] for x in todo)),
             "order_now": sum(1 for x in todo if x["priority"] == LEVELS[0]),
             "order_soon": sum(1 for x in todo if x["priority"] == LEVELS[1]),
+            "skus_with_customers_waiting": sum(1 for x in todo if x["waiting"] > 0),
+            "units_customers_waiting": int(sum(x["waiting"] for x in rows)),
             "forecast_units": round(grand, 1), "skus_checked": len(rows),
         },
         "by_warehouse": sorted(by_wh.values(), key=lambda d: -d["units"]),

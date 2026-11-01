@@ -26,7 +26,7 @@ from app.integrations.models import IntegrationRun
 from app.modules.alerts import service as alerts
 from app.modules.alerts.models import CRITICAL, INFO, WARNING
 from app.modules.dispatch.models import (
-    PLAN_PARTIAL, TRANSFER_IN_TRANSIT, ExportLog, LedgerEntry, Plan, StockTransfer,
+    PLAN_PARTIAL, TRANSFER_IN_TRANSIT, ExportLog, Plan, StockTransfer,
 )
 
 STOCK_ALERT_LIMIT = 40          # the worst N, so one bad day cannot bury the list in 300 rows
@@ -71,12 +71,9 @@ async def check_stock(db: AsyncSession) -> int:
     from app.modules.forecast import orders as ordering
     from app.modules.forecast import supply
 
-    reserved = await _reserved(db)
-    leads = await supply.lead_times(db)
-    coming = await supply.on_order(db)
+    inputs = await supply.order_inputs(db)
     try:
-        data = await asyncio.to_thread(ordering.compute, 7, True, None, reserved, False, leads,
-                                       settings.default_lead_time_days, coming)
+        data = await asyncio.to_thread(lambda: ordering.compute(7, True, None, **inputs))
     except Exception as exc:  # noqa: BLE001  the forecast may not be warm yet; that is not an alert
         print(f"[alerts] stock check skipped: {exc}", flush=True)
         return 0
@@ -85,11 +82,16 @@ async def check_stock(db: AsyncSession) -> int:
     still_wrong = set()
     for r in urgent:
         empty = r["available"] <= 0
-        kind = "stockout" if empty else "low_cover"
+        kind = "stockout" if empty or r["waiting"] > 0 else "low_cover"
         key = f"{kind}:{r['product_id']}:{r['warehouse_id']}"
         still_wrong.add(key)
         name = r.get("product_name") or f"SKU {r['product_id']}"
-        if empty:
+        if r["waiting"] > 0:
+            title = f"Customers are waiting for {r['waiting']:g} units of {name} at {r['warehouse_id']}"
+            detail = (f"Open orders want more than the shelf holds ({r['available']:g} free to sell). "
+                      f"{r['units_to_order']:g} units need ordering; the supplier takes {r['lead_time_days']} day(s).")
+            severity = CRITICAL
+        elif empty:
             title = f"{name} is out of stock at {r['warehouse_id']}"
             detail = (f"Nothing free to sell, and {r['forecast_units']:g} units are forecast over the next "
                       f"{r['cover_days']} days. {r['units_to_order']:g} units need ordering; the supplier "
@@ -108,15 +110,6 @@ async def check_stock(db: AsyncSession) -> int:
     for kind in ("stockout", "low_cover"):
         cleared += await alerts.clear_missing(db, kind, still_wrong)
     return cleared
-
-
-async def _reserved(db: AsyncSession) -> dict:
-    rows = (await db.execute(select(LedgerEntry).where(LedgerEntry.fulfilment == "RESERVED"))).scalars().all()
-    out: dict = {}
-    for r in rows:
-        key = (int(r.product_id), r.warehouse_id)
-        out[key] = out.get(key, 0.0) + float(r.qty_committed)
-    return out
 
 
 # ----------------------------------------------------------------- dispatch

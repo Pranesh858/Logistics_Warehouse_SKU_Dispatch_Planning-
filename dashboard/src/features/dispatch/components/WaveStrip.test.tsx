@@ -1,10 +1,9 @@
 /**
  * The wave strip tells the planner which wave the plan is for and what is deliberately not in it, so a missing
- * order reads as "it is in the next wave" or "it arrived after this plan", not as lost.
+ * order reads as "it is in the next wave", not as lost.
  */
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render } from '@/test/render';
 import type { Plan, WaveInfo } from '../types';
 import { WaveStrip } from './WaveStrip';
@@ -41,18 +40,6 @@ describe('WaveStrip', () => {
   it('says when the cut-off has passed and the wave is being loaded', () => {
     render(<WaveStrip plan={plan(morning)} now={new Date('2026-11-02T09:30:00')} />);
     expect(screen.getByText(/Cut-off passed/)).toBeInTheDocument();
-  });
-
-  it('offers to bring in orders that arrived after the plan, only to someone who may', async () => {
-    const onUpdate = vi.fn();
-    const { unmount } = render(<WaveStrip plan={plan({ ...morning, new_since_plan: 2 })} onUpdate={onUpdate} />);
-    expect(screen.getByRole('status')).toHaveTextContent('2 new orders for this wave arrived after this plan was built');
-    await userEvent.click(screen.getByRole('button', { name: 'Update plan now' }));
-    expect(onUpdate).toHaveBeenCalledOnce();
-    unmount();
-
-    render(<WaveStrip plan={plan({ ...morning, new_since_plan: 2 })} />);
-    expect(screen.queryByRole('button', { name: 'Update plan now' })).not.toBeInTheDocument();
   });
 
   it('shows nothing when waves are off, and no live counts on an approved plan', () => {

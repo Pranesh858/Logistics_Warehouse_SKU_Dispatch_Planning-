@@ -19,7 +19,9 @@ export const useOrders = (days: number, safety: boolean, warehouse_id?: string, 
   return useQuery({
     queryKey: ['forecast', 'orders', userId, days, safety, warehouse_id ?? ''],
     queryFn: () => forecastApi.orders(days, safety, warehouse_id),
-    staleTime: 5 * 60_000,
+    // short: stock, plans and purchase orders change it, also from other people and the WMS. The server keeps the
+    // forecast itself, so asking again is cheap.
+    staleTime: 30_000,
     enabled,
   });
 };

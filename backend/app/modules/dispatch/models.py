@@ -111,6 +111,20 @@ class PlanLine(Base):
     plan: Mapped[Plan] = relationship(back_populates="lines")
 
 
+class PlanChange(Base):
+    """Something that happened since the current plan was built and is not in it yet (new orders, a stock count,
+    goods received...). Plans are only rebuilt when a planner asks, so these tell them the plan is out of date.
+    One row per kind and detail; the count adds up. Building a plan clears them."""
+
+    __tablename__ = "plan_changes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    detail: Mapped[str] = mapped_column(String(60), default="")
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, server_default=func.now())
+
+
 class LedgerEntry(Base):
     """Stock promised to an approved order (SENT to the WMS, or FAILED and awaiting retry). Never re-allocated."""
 

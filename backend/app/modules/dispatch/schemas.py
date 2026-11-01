@@ -97,6 +97,7 @@ class PlanOut(BaseModel):
     trucks: list[TruckLoadOut] = []
     unassigned: list[UnassignedOut] = []
     wave: dict | None = None        # the dispatch wave this plan is for; None when waves are off
+    changes: list[dict] = []        # what happened since the plan was built and is not in it yet
 
 
 class PlanBrief(BaseModel):

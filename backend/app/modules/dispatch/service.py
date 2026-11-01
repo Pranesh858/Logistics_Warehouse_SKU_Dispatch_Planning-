@@ -20,7 +20,7 @@ from app.core.config import settings
 from app.modules.dispatch import engine, packing, transfers, waves
 from app.modules.dispatch.models import (
     PLAN_EXPORTED, PLAN_NOTHING, PLAN_PARTIAL, PLAN_RECOMMENDED, PLAN_SUPERSEDED,
-    BlockedSku, ExportLog, LedgerEntry, Order, Plan, PlanLine, Truck, TruckLoad,
+    BlockedSku, ExportLog, LedgerEntry, Order, Plan, PlanChange, PlanLine, Truck, TruckLoad,
 )
 from app.modules.dispatch.schemas import OrderIn
 from app.modules.dispatch.wms import get_wms_client
@@ -105,8 +105,8 @@ async def seed_orders(db: AsyncSession) -> int:
 
 
 async def ingest_orders(db: AsyncSession, orders: list[OrderIn], rebuild: bool = True) -> Plan | None:
-    """Store new orders. `rebuild=False` leaves the plan alone: the orders join it at the next order sync or when
-    a planner updates it, so a stream of single orders does not produce a new plan version each."""
+    """Store new orders. They join the plan when a planner presses Generate plan (see note_change). With AUTO_REPLAN
+    the plan is rebuilt at once, unless `rebuild=False`: then they wait for the next order sync."""
     df = pd.DataFrame([o.model_dump() for o in orders])
     stock = await _stock()
     try:
@@ -122,9 +122,7 @@ async def ingest_orders(db: AsyncSession, orders: list[OrderIn], rebuild: bool =
         raise ConflictError(f"order_id(s) already exist or were already dispatched: {sorted(existing)[:10]}")
     db.add_all(_order_row(o) for o in orders)
     await db.commit()
-    if not rebuild:
-        return None
-    return await recommend_plan(db, trigger="new_orders")
+    return await note_change(db, "new_orders", len(orders), rebuild=rebuild)
 
 
 # ----------------------------------------------------------------- recommend
@@ -135,8 +133,51 @@ async def recommend_plan(db: AsyncSession, trigger: str = "recalculate", carry_f
         return await _recommend_locked(db, trigger, carry_from, carry_except)
 
 
+# What each kind of change reads as on the plan page: (one, many). {n} = count, {d} = detail.
+CHANGE_TEXT = {
+    "new_orders": ("1 new order", "{n} new orders"),
+    "stock_update": ("stock count changed for 1 SKU", "stock counts changed for {n} SKUs"),
+    "dispatch_confirmed": ("1 order shipped or cancelled", "{n} orders shipped or cancelled"),
+    "purchase_received": ("1 purchase order received", "{n} purchase orders received"),
+    "transfer_approved": ("1 transfer approved", "{n} transfers approved"),
+    "transfer_received": ("1 transfer received", "{n} transfers received"),
+    "transfer_cancelled": ("1 transfer cancelled", "{n} transfers cancelled"),
+    "sales_update": ("sales history updated", "sales history updated"),
+    "dataset_upload": ("new sales data loaded", "new sales data loaded"),
+    "retrained": ("forecast model retrained", "forecast model retrained"),
+    "next_wave": ("the {d} wave has started", "the {d} wave has started"),
+}
+
+
+async def note_change(db: AsyncSession, kind: str, count: int = 1, detail: str = "", rebuild: bool = True) -> Plan | None:
+    """Something the current plan does not include yet. It is noted for the planner, who rebuilds the plan with
+    Generate plan when ready, so a busy day does not produce a new plan version for every order or stock count.
+    With AUTO_REPLAN the plan is rebuilt at once instead (`rebuild=False` notes it either way)."""
+    if settings.auto_replan and rebuild:
+        return await recommend_plan(db, trigger=kind)
+    row = (await db.execute(select(PlanChange).where(PlanChange.kind == kind, PlanChange.detail == detail))).scalars().first()
+    if row is None:
+        db.add(PlanChange(kind=kind, detail=detail, count=count))
+    elif count:
+        row.count += count
+    await db.commit()
+    return None
+
+
+async def pending_changes(db: AsyncSession) -> list[dict]:
+    """What happened since the current plan was built, oldest first."""
+    rows = (await db.execute(select(PlanChange).order_by(PlanChange.at))).scalars().all()
+    out = []
+    for r in rows:
+        one, many = CHANGE_TEXT.get(r.kind, (r.kind, r.kind))
+        text = (one if r.count == 1 else many).format(n=r.count, d=r.detail.split(" ", 1)[-1])
+        out.append({"kind": r.kind, "count": r.count, "detail": r.detail, "text": text, "at": r.at})
+    return out
+
+
 async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | None = None,
                             carry_except: str | None = None) -> Plan | None:
+    started = dt.datetime.now()      # changes noted after this are not in the plan, so they stay noted
     rows = (await db.execute(select(Order))).scalars().all()
     if not rows:
         return None
@@ -204,6 +245,7 @@ async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | N
     db.add(plan)
     await db.flush()
     await _repack(db, plan, manual_trucks)
+    await db.execute(delete(PlanChange).where(PlanChange.at <= started))
     await db.commit()
     await db.refresh(plan)
     # Shortages this plan reports may be coverable from another warehouse. Proposals only; nothing moves
@@ -433,6 +475,7 @@ async def plan_view(db: AsyncSession, plan: Plan, warehouse_id: str | None = Non
         "created_at": plan.created_at, "approved_by": plan.approved_by, "approved_at": plan.approved_at,
         "summary": _summary(out), "lines": out, "trucks": trucks_out, "unassigned": unassigned,
         "wave": await _wave_view(db, plan, out, warehouse_id),
+        "changes": await pending_changes(db) if plan.status == PLAN_RECOMMENDED else [],
     }
 
 
@@ -569,8 +612,14 @@ async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehou
         missing = [l.order_id for l in lines if l.decision == "OVERRIDDEN" and not (l.override_reason or "").strip()]
         if missing:
             raise BadRequestError(f"Overridden orders without a reason: {missing[:10]}")
-        await _check_stock(db, list(all_lines))
-        await _repack(db, plan)                    # make sure the truck loads match the final quantities
+        try:
+            await _check_stock(db, list(all_lines))
+        except BadRequestError as exc:
+            if await pending_changes(db):      # the plan is older than the stock it was checked against
+                raise BadRequestError(f"{exc.detail}. The stock has changed since this plan was built: "
+                                      "press Generate plan for one that fits it.") from exc
+            raise
+        await _repack(db, plan)                  # make sure the truck loads match the final quantities
         assigned: dict[str, float] = {}
         mine = {l.order_id for l in lines}
         for ld in (await db.execute(select(TruckLoad).where(TruckLoad.plan_id == plan.id))).scalars():

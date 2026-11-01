@@ -1,4 +1,4 @@
-import type { PlanStatus } from '../types';
+import type { PlanLine, PlanStatus } from '../types';
 
 export const fmt = (n: number | null | undefined, d = 0) =>
   n === null || n === undefined ? '-' : n.toLocaleString(undefined, { maximumFractionDigits: d });
@@ -34,8 +34,13 @@ export const TRIGGER_LABEL: Record<string, string> = {
   startup: 'built automatically at startup',
   new_orders: 'rebuilt automatically when new orders arrived',
   after_approval: 'rebuilt automatically for the orders still open',
-  recalculate: 'recalculated on request',
+  recalculate: 'generated on request',
   sku_blocked: 'rebuilt after a SKU was blocked',
   sku_unblocked: 'rebuilt after a SKU was unblocked',
   next_wave: 'built for the next wave when the trucks left',
 };
+
+/** Short because the shelf is, so buying more is the fix (the same lines Units to order counts as customers waiting).
+ *  Truck space, a blocked SKU or a line the planner held back is not. */
+export const shortOfStock = (l: PlanLine) =>
+  ['PARTIAL', 'HELD', 'BACKORDERED'].includes(l.status) && l.qty_short > 0 && l.decision !== 'REJECTED';

@@ -58,7 +58,7 @@ async def apply_stock(db: AsyncSession, items: list[dict], source: str, username
     changed = await stock_service.count(db, counts, source=source, username=username, reason=reason)
     applied = len(counts)
     if changed:
-        await dispatch_service.recommend_plan(db, trigger="stock_update")
+        await dispatch_service.note_change(db, "stock_update", changed)
     return applied, changed, skipped
 
 
@@ -152,7 +152,7 @@ async def sync_sales(db: AsyncSession) -> IntegrationRun:
             return await _log(db, "sales", mode, "OK", 0, "No new sales")
         n, new_products, warnings = await asyncio.to_thread(_append_sales, raw)
         await stock_service.register_from_history(db)      # a SKU new to the history becomes a stocked SKU
-        await dispatch_service.recommend_plan(db, trigger="sales_update")
+        await dispatch_service.note_change(db, "sales_update")
     except Exception as exc:
         return await _log(db, "sales", mode, "FAILED", 0, getattr(exc, "detail", None) or str(exc))
     msg = f"{n} sales rows added to the history; the model was not retrained"
@@ -220,7 +220,7 @@ async def confirm_dispatch(db: AsyncSession, items: list[dict], source: str, war
         # feed is connected its next report overwrites this with the authoritative figure.
         await stock_service.apply(db, taken, source=source)
     if shipped or cancelled:
-        await dispatch_service.recommend_plan(db, trigger="dispatch_confirmed")
+        await dispatch_service.note_change(db, "dispatch_confirmed", shipped + cancelled)
     msg = f"{shipped} shipped, {cancelled} cancelled, {round(freed):g} units released from reservation"
     if skipped:
         msg += f", {skipped} skipped (unknown order or already confirmed)"
@@ -249,8 +249,9 @@ async def _send_po(db: AsyncSession, po: PurchaseOrder) -> PurchaseOrder:
 async def create_purchase_orders(db: AsyncSession, days: int, safety: bool, warehouse_id: str | None, urgent_only: bool,
                                  user: str) -> list[PurchaseOrder]:
     """One purchase order per warehouse, built here from the same numbers as the Units to order list."""
-    from app.modules.forecast.router import _reserved
-    res = await asyncio.to_thread(order_needs.compute, days, safety, warehouse_id, await _reserved(db))
+    from app.modules.forecast import supply
+    inputs = await supply.order_inputs(db)
+    res = await asyncio.to_thread(lambda: order_needs.compute(days, safety, warehouse_id, **inputs))
     rows = [r for r in res["rows"] if r["units_to_order"] > 0 and (not urgent_only or r["priority"] != "Plan ahead")]
     if not rows:
         raise BadRequestError("Nothing to order for this selection")
@@ -301,7 +302,7 @@ async def maybe_retrain(db: AsyncSession, session_factory) -> IntegrationRun | N
                 await _log(s2, "retrain", "scheduled", "OK", result.get("training_rows", 0),
                            f"Retrained on history to {result.get('history_to')}: error {c.get('wape_before')} -> {c.get('wape_after')}")
                 await stock_service.register_from_history(s2)
-                await dispatch_service.recommend_plan(s2, trigger="retrained")
+                await dispatch_service.note_change(s2, "retrained")
         asyncio.run_coroutine_threadsafe(after(), loop)
 
     await asyncio.to_thread(dataset_service.start_retrain, done, "scheduled")
@@ -366,7 +367,8 @@ async def wave_tick(session_factory, since: datetime, now: datetime) -> None:
 
     * An order cut-off passed: pull the orders once more (when the order feed syncs on a schedule), so an order
       placed just before the cut-off makes its wave even if the regular sync falls later.
-    * The plan is for a wave whose trucks have left (or was built before waves): build the next wave's plan. Orders
+    * The plan is for a wave whose trucks have left (or was built before waves): the planner is told the next wave
+      has started (with AUTO_REPLAN its plan is built at once). Orders
       that were not sent are carried into it.
     """
     wave = waves.current(now)
@@ -379,7 +381,7 @@ async def wave_tick(session_factory, since: datetime, now: datetime) -> None:
         plan = (await db.execute(select(Plan).where(Plan.status == PLAN_RECOMMENDED)
                                  .order_by(Plan.version.desc()))).scalars().first()
         if plan is not None and plan.wave != wave.key:
-            await dispatch_service.recommend_plan(db, trigger="next_wave")
+            await dispatch_service.note_change(db, "next_wave", 0, detail=wave.key)
 
 
 async def scheduler(session_factory) -> None:

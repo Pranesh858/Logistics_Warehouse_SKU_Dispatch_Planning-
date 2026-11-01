@@ -105,6 +105,16 @@ export interface Plan {
   trucks: TruckLoad[];
   unassigned: Unassigned[];
   wave?: WaveInfo | null;     // null when dispatch waves are off
+  changes?: PlanChange[];     // what happened since the plan was built; empty once it is approved
+}
+
+/** Something that happened since the plan was built and is not in it yet, e.g. "12 new orders". */
+export interface PlanChange {
+  kind: string;
+  count: number;
+  detail: string;
+  text: string;
+  at: string;
 }
 
 /** A dispatch wave: orders placed before the cut-off go out on its trucks. Times are local ISO strings. */

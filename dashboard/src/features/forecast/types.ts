@@ -79,6 +79,7 @@ export interface OrderRow {
   reserved: number;
   available: number;
   days_of_cover: number | null;
+  waiting?: number;            // units customers already ordered that the current plan cannot fill
   units_to_order: number;
   priority: 'Order now' | 'Order soon' | 'Plan ahead' | 'Covered';
 }
@@ -90,7 +91,10 @@ export interface OrdersResult {
   history_to: string;
   default_lead_time_days: number;
   on_order_units: number;
-  summary: { skus_to_order: number; units_to_order: number; order_now: number; order_soon: number; forecast_units: number; skus_checked: number };
+  summary: {
+    skus_to_order: number; units_to_order: number; order_now: number; order_soon: number; forecast_units: number; skus_checked: number;
+    skus_with_customers_waiting?: number; units_customers_waiting?: number;
+  };
   by_warehouse: { warehouse_id: string; city: string; skus: number; units: number }[];
   rows: OrderRow[];
 }

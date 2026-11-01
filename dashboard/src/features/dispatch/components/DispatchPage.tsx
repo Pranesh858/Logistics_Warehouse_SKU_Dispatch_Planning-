@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Metric, MetricBand } from '@/components/ui/metric';
@@ -12,13 +13,14 @@ import { useAuth, useCan, useScope } from '@/features/auth/store';
 import { useCurrentPlan, usePlan, usePlanHistory, useRecalculate, useRetryExports, useTransfers } from '../hooks';
 import type { Plan } from '../types';
 import { ApprovePanel } from './ApprovePanel';
-import { fmt, fmtDate, PLAN_LABEL, TRIGGER_LABEL } from './format';
+import { fmt, fmtDate, PLAN_LABEL, shortOfStock, TRIGGER_LABEL } from './format';
 import { OutlookTable } from './OutlookTable';
 import { PlanTable } from './PlanTable';
 import { TransfersTable, transferHint } from './TransfersTable';
 import { TruckPlan } from './TruckPlan';
 import { TruckSetup } from './TruckSetup';
 import { WaveStrip } from './WaveStrip';
+import { PlanChanges } from './PlanChanges';
 
 type Tab = 'orders' | 'trucks' | 'setup' | 'outlook' | 'transfers' | 'history';
 
@@ -59,8 +61,9 @@ export function DispatchPage() {
         <PageBody>
           <div className="rounded-md border border-dashed border-surface-rule bg-surface px-6 py-12 text-center">
             <p className="text-body text-ink-body">No open orders yet.</p>
-            <p className="mt-1 text-caption text-ink-muted">A plan is recommended automatically as soon as orders arrive.</p>
-            {can.edit && <Button className="mt-4" size="sm" variant="outline" onClick={() => recalc.mutate()} disabled={recalc.isPending}>Check again</Button>}
+            <p className="mt-1 text-caption text-ink-muted">Once orders have arrived, press Generate plan to build one.</p>
+            {can.edit && <Button className="mt-4" size="sm" onClick={() => recalc.mutate()} disabled={recalc.isPending}>{recalc.isPending ? 'Generating…' : 'Generate plan'}</Button>}
+            {recalc.isError && <p role="alert" className="mt-2 text-caption text-danger-text">{errorMessage(recalc.error)}</p>}
           </div>
         </PageBody>
       </>
@@ -72,6 +75,9 @@ export function DispatchPage() {
   const live = waiting && isCurrent && can.edit;
   const sent = plan.lines.filter((l) => l.export_status === 'SENT').length;
   const hint = transferHint(transfers.data);
+  const outdated = waiting && isCurrent && (plan.changes ?? []).length > 0;
+  const short = waiting ? plan.lines.filter(shortOfStock) : [];
+  const shortUnits = short.reduce((t, l) => t + l.qty_short, 0);
 
   return (
     <>
@@ -87,6 +93,11 @@ export function DispatchPage() {
             <Badge variant={PLAN_TONE(plan.status)}>{PLAN_LABEL[plan.status]}</Badge>
             <WarehouseSwitch />
             {!isCurrent && <Button size="sm" variant="outline" onClick={() => setViewId(undefined)}>Back to current</Button>}
+            {live && (
+              <Button size="sm" variant={outdated ? 'default' : 'outline'} onClick={() => recalc.mutate()} disabled={recalc.isPending}>
+                {recalc.isPending ? 'Generating…' : 'Generate plan'}
+              </Button>
+            )}
             {live && <ApprovePanel plan={plan} />}
           </>
         }
@@ -111,12 +122,25 @@ export function DispatchPage() {
             You plan <strong>{wh}</strong>. Approving sends this warehouse&rsquo;s orders; other warehouses are approved by their own planners.
           </Notice>
         )}
+        {isCurrent && <PlanChanges plan={plan} canGenerate={live} />}
+        {recalc.isError && <Notice>{errorMessage(recalc.error)}</Notice>}
         {plan.status === 'PARTIALLY_EXPORTED' && <RetryBanner plan={plan} />}
         {plan.status === 'EXPORTED' && <Notice tone="good">All {fmt(s.orders_to_send || sent)} approved orders reached the WMS.</Notice>}
         {waiting && s.unassigned_orders > 0 && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-body-sm text-warning-text">
             <span>{fmt(s.unassigned_orders)} {s.unassigned_orders === 1 ? 'order does' : 'orders do'} not fit on any truck and will not be sent.</span>
             <Button size="sm" variant="outline" onClick={() => setTab('trucks')}>See truck loading</Button>
+          </div>
+        )}
+        {short.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-body-sm text-warning-text">
+            <span>
+              {fmt(short.length)} {short.length === 1 ? 'order is' : 'orders are'} short of stock by {fmt(shortUnits)} units.
+              Units to order counts them, so a purchase order can bring them in.
+            </span>
+            <Button size="sm" variant="outline" asChild>
+              <Link href={short.length === 1 ? `/ordering?q=${short[0].product_id}` : '/ordering'}>Order the missing units</Link>
+            </Button>
           </div>
         )}
         {waiting && hint && (
@@ -126,8 +150,7 @@ export function DispatchPage() {
           </div>
         )}
 
-        <WaveStrip plan={plan} updating={recalc.isPending}
-          onUpdate={live ? () => recalc.mutate() : undefined} />
+        <WaveStrip plan={plan} />
 
         <MetricBand className="lg:grid-cols-6">
           <Metric label="Orders" value={fmt(s.orders)} note={`${s.overridden + s.rejected} changed by hand`} />

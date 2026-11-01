@@ -87,6 +87,40 @@ def test_a_purchase_order_reaches_the_erp_and_keeps_its_reference(live):
     assert sum(ln["units"] for ln in held["lines"]) == po["total_units"]
 
 
+def test_received_goods_reach_the_wms_so_its_next_count_keeps_them(live):
+    """Receive used to add the goods on our side only. The WMS still held the old count, and its next stock sync
+    took them away again: in the demo #38 at WH01 went 2 -> 89 on Receive and back to 2 a minute later."""
+    po = live.post("/integrations/purchase-orders", json={"days": 7, "urgent_only": True})[0]
+    wh, line = po["warehouse_id"], po["lines"][0]
+    pid, units = int(line["product_id"]), float(line["units"])
+    before = live.stock(pid, wh)
+    assert live.state["stock"][(pid, wh)] == before
+
+    live.post(f"/integrations/purchase-orders/{po['id']}/receive")
+    assert live.stock(pid, wh) == before + units
+    assert live.state["stock"][(pid, wh)] == before + units              # the WMS booked them in too
+    assert live.state["receipts"][po["po_ref"]]["warehouse_id"] == wh
+
+    run = live.post("/integrations/sync/inventory")
+    assert run["status"] == "OK"
+    assert live.stock(pid, wh) == before + units                        # the sync no longer takes them away
+
+
+def test_goods_are_not_received_when_the_wms_cannot_book_them(live):
+    po = live.post("/integrations/purchase-orders", json={"days": 7, "urgent_only": True})[0]
+    line = po["lines"][0]
+    pid, wh = int(line["product_id"]), po["warehouse_id"]
+    before = live.stock(pid, wh)
+    live.fake.post("/control/wms/down")
+    live.post(f"/integrations/purchase-orders/{po['id']}/receive", expect=422)
+    assert live.stock(pid, wh) == before
+    assert not next(p for p in live.get("/integrations/purchase-orders") if p["id"] == po["id"])["received_at"]
+
+    live.fake.post("/control/wms/up")                                   # try again: received once, on both sides
+    live.post(f"/integrations/purchase-orders/{po['id']}/receive")
+    assert live.stock(pid, wh) == before + float(line["units"]) == live.state["stock"][(pid, wh)]
+
+
 def test_sales_sync_appends_the_erps_closed_days(live_factory, small_model, tmp_path):
     """The ERP's catalogue matches the small temporary history, so the real 37 MB file is never touched."""
     hist = pd.read_csv(settings.dataset_path, parse_dates=["date"])

@@ -40,7 +40,7 @@ export function defaultDue(now = new Date()) {
  * Where people tell the system what just happened.
  *
  * Without a WMS or ERP connected, this is the way new orders and stock counts get in. Both are saved to the
- * database, and the dispatch plan is rebuilt before the screen says "done", so the person sees the effect.
+ * database. They join the dispatch plan when a planner presses Generate plan, which the Dispatch page asks for.
  */
 export function EntryPage() {
   const can = useCan();
@@ -50,7 +50,7 @@ export function EntryPage() {
     <>
       <PageHeader
         title="Orders and stock"
-        lead="Type in a new order or a stock count. The plan is rebuilt as soon as you save."
+        lead="Type in a new order or a stock count. They join the dispatch plan at the next Generate plan."
       />
       <PageBody className="space-y-5">
         {!can.edit && <Notice tone="info">You have view-only access, so nothing here can be changed.</Notice>}
@@ -117,7 +117,7 @@ function OrderForm({ skus }: { skus: SkuRow[] }) {
   const [tier, setTier] = useState<NewOrder['customer_tier']>('Standard');
   const [due, setDue] = useState(defaultDue());
   const add = useAddOrder();
-  const [added, setAdded] = useState<{ id: string; allocated: number; ordered: number } | null>(null);
+  const [added, setAdded] = useState<{ id: string; allocated: number | null; ordered: number } | null>(null);
 
   const units = Number(qty);
   const valid = sku !== null && units > 0 && customer.trim() !== '' && due !== '';
@@ -133,8 +133,9 @@ function OrderForm({ skus }: { skus: SkuRow[] }) {
     setAdded(null);
     add.mutate(order, {
       onSuccess: (plan) => {
-        const mine = plan.lines.find((l) => l.order_id === order.order_id);
-        setAdded({ id: order.order_id, ordered: units, allocated: mine?.qty_allocated ?? 0 });
+        // The plan only has the order if it was rebuilt at once (AUTO_REPLAN); otherwise it waits for Generate plan.
+        const mine = plan?.lines.find((l) => l.order_id === order.order_id);
+        setAdded({ id: order.order_id, ordered: units, allocated: mine ? mine.qty_allocated : null });
         setQty('');
       },
     });
@@ -171,9 +172,11 @@ function OrderForm({ skus }: { skus: SkuRow[] }) {
         </div>
         {add.isError && <Notice>{errorMessage(add.error)}</Notice>}
         {added && (
-          <Notice tone={added.allocated >= added.ordered ? 'good' : 'warn'}>
+          <Notice tone={added.allocated === null || added.allocated >= added.ordered ? 'good' : 'warn'}>
             {`Order ${added.id} saved. ${
-              added.allocated >= added.ordered
+              added.allocated === null
+                ? 'It joins the dispatch plan when you press Generate plan on the Dispatch page.'
+                : added.allocated >= added.ordered
                 ? 'The plan can fill all of it.'
                 : `The plan can fill ${added.allocated} of ${added.ordered} units with the stock on hand.`
             }`}
@@ -235,7 +238,7 @@ function StockForm({ skus }: { skus: SkuRow[] }) {
         {saved && (
           <Notice tone="good">
             {saved.changed
-              ? `Stock changed from ${Math.round(saved.before)} to ${saved.after}. The plan has been rebuilt.`
+              ? `Stock changed from ${Math.round(saved.before)} to ${saved.after}. Press Generate plan on the Dispatch page to plan with it.`
               : 'That is already the number on record, so nothing changed.'}
           </Notice>
         )}

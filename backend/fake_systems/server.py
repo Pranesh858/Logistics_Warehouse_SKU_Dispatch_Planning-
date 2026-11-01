@@ -50,6 +50,7 @@ def create_app(*, wms_key: str = "wms-key", erp_key: str = "erp-key", app_url: s
         "dispatch": {},                               # order_id -> the payload, plus status RECEIVED / SHIPPED
         "orders": [],                                 # the ERP order book
         "purchase_orders": {},                        # po_ref -> payload plus our reference
+        "receipts": {},                               # reference -> the goods booked in, so a repeat adds nothing
         "calls": {},                                  # "GET /wms/inventory" -> count, for checking what was called
         "pushes": [],                                 # what we sent to the planner and what it answered
         # WMS faults for failure tests: answer slowly, go down after N dispatch orders, or book an order and then
@@ -105,6 +106,23 @@ def create_app(*, wms_key: str = "wms-key", erp_key: str = "erp-key", app_url: s
         if f["lose_reply"]:
             return JSONResponse({"detail": "gateway timeout"}, status_code=504)
         return {"order_id": oid, "status": "received"}
+
+    @app.post("/wms/receipts")
+    async def receipt(payload: dict = Body(...)):
+        """Goods in: {reference, warehouse_id, lines: [{product_id, units}]}. The stock rises by the units; the same
+        reference again is acknowledged and not booked twice."""
+        ref = str(payload.get("reference") or "")
+        wh = payload.get("warehouse_id")
+        lines = payload.get("lines") or []
+        if not ref or not wh or not lines:
+            raise HTTPException(422, "reference, warehouse_id and lines are required")
+        if ref in state["receipts"]:
+            return {"reference": ref, "status": "duplicate", "note": "already booked in; not added twice"}
+        for ln in lines:
+            key = (int(ln["product_id"]), wh)
+            state["stock"][key] = state["stock"].get(key, 0.0) + float(ln["units"])
+        state["receipts"][ref] = {**payload, "at": datetime.now().isoformat()}
+        return {"reference": ref, "status": "booked", "units": sum(float(ln["units"]) for ln in lines)}
 
     # ------------------------------------------------------------------ ERP
     @app.get("/erp/orders")

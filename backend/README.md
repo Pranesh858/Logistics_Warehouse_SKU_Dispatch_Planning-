@@ -275,7 +275,7 @@ The planner never has to ask for a plan, and nothing reaches the WMS without the
 | Dispatch | `POST /dispatch/plans/{id}/exports/retry`, `GET .../exports` | Retry and export log |
 | Dispatch | `GET /dispatch/plans/{id}/outlook` | Stock after the plan vs forecast demand |
 | Dispatch | `POST /dispatch/orders` | Add orders (triggers a new recommendation) |
-| Dispatch | `POST /dispatch/plans/recalculate` | Rebuild the recommendation on demand |
+| Dispatch | `POST /dispatch/plans/recalculate` | Generate plan: rebuild the recommendation from the orders and stock as they are now |
 | Dispatch | `GET/POST/DELETE /dispatch/blocked-skus` | Blocked SKU x warehouse pairs |
 | Trucks | `GET/POST /dispatch/trucks` | List and add trucks (name, warehouse, capacity in units) |
 | Trucks | `PATCH/DELETE /dispatch/trucks/{id}` | Change a truck's name, size or on/off state; delete switches it off |
@@ -305,15 +305,25 @@ An order placed at or after 14:00 goes to the next day's Morning wave.
 - **One plan per wave.** The plan is built for the first wave whose trucks have not left. It holds that wave's
   orders and the orders of earlier waves that are still open. Orders for later waves wait: they hold no stock and
   are shown as a count (`wave.later_wave_orders`).
-- **Carried over.** When a wave's trucks leave, the next wave's plan is built by itself. Anything the earlier wave
-  could not send (no truck space, no stock, held) is carried into it and marked `carried`. Within its tier a
+- **Carried over.** When a wave's trucks leave, the plan says the next wave has started and Generate plan builds
+  its plan. Anything the earlier wave could not send (no truck space, no stock, held) is carried into it and marked `carried`. Within its tier a
   carried order goes first, for stock and for truck space.
 - **Fewer plan versions.** Set the customer order sync to every 120 minutes (Systems > Connections, or
   `ORDER_SYNC_MINUTES=120`). The orders are also pulled once more at each cut-off, so an order placed just before
-  it makes its wave. With a scheduled sync, orders pushed by webhook are stored but wait for the next sync, and the
-  plan shows them as `wave.new_since_plan` with an *Update plan now* button. Without a scheduled sync a push still
-  rebuilds the plan at once.
+  it makes its wave. New orders join the plan at the next Generate plan (below).
 - `DISPATCH_WAVES=` (empty) turns waves off: every open order is planned at once, as before.
+
+### Generate plan
+
+A new plan is built only when a planner presses **Generate plan** (`POST /dispatch/plans/recalculate`), plus once
+at startup when there is none, after an approval (for what is still open) and when a SKU is blocked or unblocked.
+Everything else is only noted: new orders, stock counts, shipments, goods received, transfers, a sales update or
+retrain, the next wave starting. The plan then carries `changes` (for example "12 new orders", "stock counts
+changed for 3 SKUs") and the Dispatch page says it is out of date. Generate plan clears the list.
+
+Before this, each of those events built a plan of its own: in the demo 52 of 56 plans were replaced before anyone
+looked at them. An out-of-date plan is still safe to approve: approval checks the stock as it is now and refuses
+(asking for Generate plan) if the plan no longer fits it. `AUTO_REPLAN=true` brings back the rebuild on every event.
 
 ### Trucks
 
@@ -371,7 +381,8 @@ pytest          # uses SQLite, no PostgreSQL needed; first run builds the featur
 - `POST /api/v1/forecast/dataset/check` (admin, CSV or Excel upload) validates a file and previews it; `POST /forecast/dataset/apply` retrains the model on the existing history plus the upload in the background (`GET /forecast/dataset/status`). New SKUs become forecastable. The new model replaces the old one only if it is not more than 10% less accurate on the latest 28 days (or `?force=true`); the old model and dataset are backed up under `app/ml/artifacts/backups/`.
   Required columns: product_id, warehouse_id, date, units_sold, stock_on_hand, price, category, city.
 - `GET /forecast/orders?days=7|14|28&safety=true` lists units to order. The cover period is the supplier's lead time **plus** the chosen period, because stock ordered today arrives days later:
-  `units = demand over (lead time + period)` (upper end of the 80% range when `safety`) `- stock free to sell - units already on order`, never below zero, most urgent first. `include_covered=true` also returns SKUs that need nothing.
+  `units = demand over (lead time + period)` (upper end of the 80% range when `safety`) `+ units customers are waiting for - stock free to sell - units already on order`, never below zero, most urgent first. `include_covered=true` also returns SKUs that need nothing.
+- **Customers waiting** (`waiting` per row) are units already ordered that the current plan cannot fill from the shelf: its `PARTIAL`, `HELD` and `BACKORDERED` lines, unless the planner held the order back. The forecast only looks ahead, so without them an order short by 63 units was listed as "Covered". A SKU with customers waiting is always *Order now*, at the top of the list, and raises a stock alert saying so. The list, Send to ERP and the stock alerts all take their inputs from `supply.order_inputs`, so they agree.
 - `GET/PUT/DELETE /forecast/lead-times` sets how long a SKU takes to arrive (admin). Anything unset uses `DEFAULT_LEAD_TIME_DAYS` (3).
 - `POST /integrations/purchase-orders/{id}/receive` records a delivery, so those units stop counting as on order.
 - `GET /forecast/reports/{forecast|orders|accuracy}?format=pdf|xlsx` downloads a PDF summary or an Excel list.
@@ -399,8 +410,8 @@ How data gets in:
 - **Push:** set `INTEGRATION_WEBHOOK_KEY` and the WMS/ERP can call `POST /integrations/webhooks/inventory` (`{"items": [...]}`) and `POST /integrations/webhooks/orders` (same body as `POST /dispatch/orders`) with header `X-Integration-Key`.
 
 What each feed changes:
-- **Stock** is saved in `stock_levels`, and every figure that changed is recorded as an `ADJUSTMENT` movement, so the allocation engine, the stock outlook and Units to order all use it. A change rebuilds the dispatch plan. Unknown SKU/warehouse pairs and negative values are skipped and counted, never fatal.
-- **Orders** are added once each (known ids and unusable rows are skipped) and rebuild the plan.
+- **Stock** is saved in `stock_levels`, and every figure that changed is recorded as an `ADJUSTMENT` movement, so the allocation engine, the stock outlook and Units to order all use it. A change marks the dispatch plan out of date (see Generate plan). Unknown SKU/warehouse pairs and negative values are skipped and counted, never fatal.
+- **Orders** are added once each (known ids and unusable rows are skipped) and join the plan at the next Generate plan.
 - **Sales** are appended to the history so forecasts start from the latest day. The model is *not* retrained automatically; retrain from Demand forecast, Update sales data. A new SKU cannot be forecast until that retrain.
 - **Purchase orders** are built on the server from the Units to order numbers (never from client-supplied quantities), stored in `purchase_orders`, and can be sent again if the ERP was down.
 
@@ -456,7 +467,7 @@ database, and a restart keeps all of it. What differs is how the rows get there.
 
 | Where the data comes from | How | Use it for |
 |---|---|---|
-| **Orders and stock screen** (sidebar, *Orders and stock*) | A planner types an order or a stock count. Saved to the database; the plan is rebuilt before the screen says done. `POST /dispatch/orders`, `POST /integrations/stock`. | A warehouse with no WMS or ERP, or a demo you drive by hand. |
+| **Orders and stock screen** (sidebar, *Orders and stock*) | A planner types an order or a stock count. Saved to the database; they join the plan at the next Generate plan. `POST /dispatch/orders`, `POST /integrations/stock`. | A warehouse with no WMS or ERP, or a demo you drive by hand. |
 | **ERP / WMS pull** | `ORDER_SYNC_MINUTES`, `INVENTORY_SYNC_MINUTES`, or *Sync now* under Systems. With no URL set, a built-in simulator stands in. | A live-looking demo that moves by itself. |
 | **ERP / WMS push** | Webhooks under `/integrations/webhooks/*`, protected by `INTEGRATION_WEBHOOK_KEY`. | A real system that can call us. |
 | **Dispatch confirmations** | The WMS (or *Mark all as shipped*) says what left. Stock drops, the reservation is released. | Closing the loop. |
@@ -591,7 +602,7 @@ that takes days, so it cannot rescue an order due this afternoon and it must not
 
     recommended plan  ->  proposals raised from the shortages it reports (nothing moves)
     planner approves  ->  the goods leave: the donor's stock drops now, an ETA is set
-    goods arrive      ->  received: the destination's stock rises, the plan is rebuilt
+    goods arrive      ->  received: the destination's stock rises, the plan is marked out of date
 
 A proposal is only raised out of stock the donor can genuinely spare:
 

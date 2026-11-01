@@ -120,6 +120,18 @@ describe('adding an order', () => {
     expect(await screen.findByText(/can fill all of it/i)).toBeInTheDocument();
   });
 
+  it('says the order waits for Generate plan when the plan was not rebuilt', async () => {
+    signInAs('admin');
+    vi.spyOn(entryApi, 'addOrders').mockImplementation(async () => planWith('SOMEONE-ELSE', 5));
+    render(<EntryPage />);
+    await screen.findByRole('button', { name: /save order/i });
+    await userEvent.type(screen.getByLabelText('Units ordered'), '10');
+    await userEvent.type(screen.getByLabelText('Customer ID'), 'C-1');
+    await userEvent.click(screen.getByRole('button', { name: /save order/i }));
+    expect(await screen.findByText(/joins the dispatch plan when you press Generate plan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/can fill/i)).not.toBeInTheDocument();
+  });
+
   it("shows the server's reason when it refuses", async () => {
     signInAs('admin');
     vi.spyOn(entryApi, 'addOrders').mockRejectedValue(new Error('SKU 9 does not exist at WH01'));

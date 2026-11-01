@@ -26,7 +26,11 @@ export function useSync() {
 
 export function useCreatePurchase() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: integrationsApi.createPurchase, onSuccess: () => qc.invalidateQueries({ queryKey: ['integrations'] }) });
+  // what was just ordered is on order now, so the ordering list must stop asking for it
+  return useMutation({
+    mutationFn: integrationsApi.createPurchase,
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['integrations'] }), qc.invalidateQueries({ queryKey: ['forecast', 'orders'] })]),
+  });
 }
 
 export const usePending = () => {

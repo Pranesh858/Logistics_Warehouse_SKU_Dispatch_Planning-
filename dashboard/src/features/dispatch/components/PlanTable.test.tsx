@@ -54,6 +54,24 @@ describe('what the planner reads', () => {
     expect(screen.getByText('ORD-1001')).toBeInTheDocument();
   });
 
+  it('offers to order what the shelf could not fill, only where buying more is the fix', () => {
+    const { unmount } = render(<PlanTable plan={plan([line({
+      product_id: 38, qty_ordered: 150, qty_allocated: 87, qty_short: 63, status: 'PARTIAL', exception_type: 'Shortage',
+    })])} editable />);
+    expect(screen.getByRole('link', { name: 'Order 63 missing' })).toHaveAttribute('href', '/ordering?q=38');
+    unmount();
+
+    for (const over of [
+      { qty_short: 20, status: 'WAVE_OVERFLOW' as const },                                // truck space, not stock
+      { qty_short: 20, status: 'PARTIAL' as const, decision: 'REJECTED' as const },     // the planner held it back
+      { qty_short: 0, status: 'FULL' as const },
+    ]) {
+      const r = render(<PlanTable plan={plan([line(over)])} editable />);
+      expect(screen.queryByRole('link', { name: /missing/ })).not.toBeInTheDocument();
+      r.unmount();
+    }
+  });
+
   it('translates every allocation outcome the engine can produce', () => {
     const outcomes: [string, string][] = [
       ['FULL', 'Full'], ['PARTIAL', 'Partial'], ['HELD', 'Held whole'],

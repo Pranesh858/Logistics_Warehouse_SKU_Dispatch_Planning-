@@ -32,6 +32,7 @@ or, as an admin, in the dashboard under **Systems > Connected systems** (address
 |---|---|---|
 | WMS | `GET /wms/inventory` | Its own stock book, `{"items": [{product_id, warehouse_id, stock_on_hand}]}` |
 | WMS | `POST /wms/dispatch-orders` | Books an approved order. The same order id again is acknowledged (`"status": "duplicate"`) and not booked twice. |
+| WMS | `POST /wms/receipts` | Goods in, `{reference, warehouse_id, lines: [{product_id, units}]}`: its stock rises. The planner sends one when a purchase order is received. The same reference again is acknowledged (`"status": "duplicate"`) and not added twice. |
 | ERP | `GET /erp/orders?since=` | Its order book, orders placed at or after `since` |
 | ERP | `GET /erp/sales?since=` | Closed days of sales from `since` (one day by default, `--sales-days`), in the dataset-upload format |
 | ERP | `POST /erp/purchase-orders` | Accepts a purchase order and returns `{"reference": "ERP-PO-00001"}`; the same `po_ref` again returns the same reference |

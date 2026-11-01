@@ -12,6 +12,7 @@ wizard if that has not been done. Nothing in the planner's database is touched.
 
     python scripts/erpnext_seed.py --env-file C:/Yzone/erpnext/erpnext-api.env
     python scripts/erpnext_seed.py --demo-orders 5      # also place 5 submitted sales orders, to try a sync
+    python scripts/erpnext_seed.py --demo-orders 5 --lines-per-order 1   # one product each: 5 orders in the planner
 
 The connection comes from ERPNEXT_URL, ERPNEXT_API_KEY and ERPNEXT_API_SECRET, in the environment or in the
 --env-file (KEY=value lines). The key and secret are an ERPNext user's API key pair (User > API Access).
@@ -186,15 +187,17 @@ def opening_stock(erp: Erp, comp: str, abbr: str):
     say(f"opening stock: {len(lines)} SKU x warehouse lines posted from data/seed_stock.csv")
 
 
-def demo_orders(erp: Erp, comp: str, abbr: str, n: int):
-    """Submitted sales orders over stocked SKU x warehouse pairs, two lines each, to try an order sync with."""
+def demo_orders(erp: Erp, comp: str, abbr: str, n: int, lines: int = 2):
+    """Submitted sales orders over stocked SKU x warehouse pairs, `lines` products each, to try an order sync with.
+    The planner plans each product line as an order of its own, so n orders arrive as n x lines planner orders."""
     stock = pd.read_csv(DATA / "seed_stock.csv")
     rng = random.Random()
     made = []
     for _ in range(n):
         tier = rng.choice(TIERS)
         wh = rng.choice(sorted(set(stock["warehouse_id"])))
-        here = stock[stock["warehouse_id"] == wh].sample(2, random_state=rng.randint(0, 10_000))
+        here = stock[stock["warehouse_id"] == wh]
+        here = here.sample(min(lines, len(here)), random_state=rng.randint(0, 10_000))
         due = (date.today() + timedelta(days=rng.randint(1, 3))).isoformat()
         so = erp.submit("Sales Order", {
             "customer": f"Demo {tier} Customer", "company": comp, "transaction_date": date.today().isoformat(),
@@ -202,14 +205,18 @@ def demo_orders(erp: Erp, comp: str, abbr: str, n: int):
             "items": [{"item_code": str(int(p)), "qty": rng.randint(2, 12), "delivery_date": due,
                        "warehouse": f"{wh} - {abbr}"} for p in here["product_id"]]})
         made.append(f"{so['name']} ({tier}, {wh})")
-    say(f"demo sales orders: {', '.join(made)}")
+    say(f"demo sales orders ({lines} product line(s) each, so {n * lines} orders in the planner): {', '.join(made)}")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--env-file", help="KEY=value file with ERPNEXT_URL, ERPNEXT_API_KEY, ERPNEXT_API_SECRET")
     ap.add_argument("--demo-orders", type=int, default=0, help="also place this many submitted sales orders")
+    ap.add_argument("--lines-per-order", type=int, default=2,
+                    help="products in each demo sales order (default 2); each line is one order in the planner")
     a = ap.parse_args()
+    if a.lines_per_order < 1:
+        ap.error("--lines-per-order must be 1 or more")
     env = load_env(a.env_file)
     erp = Erp(env["ERPNEXT_URL"], env["ERPNEXT_API_KEY"], env["ERPNEXT_API_SECRET"])
     setup_wizard(erp)
@@ -219,7 +226,7 @@ def main():
     parties(erp)
     opening_stock(erp, comp, abbr)
     if a.demo_orders:
-        demo_orders(erp, comp, abbr, a.demo_orders)
+        demo_orders(erp, comp, abbr, a.demo_orders, a.lines_per_order)
     say("ERPNext is ready for the planner.")
 
 

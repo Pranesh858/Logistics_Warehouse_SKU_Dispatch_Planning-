@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,12 @@ export function OrderingPage() {
   const [shown, setShown] = useState(PAGE);
   const [picked, setPicked] = useState<OrderRow | null>(null);
   const [confirm, setConfirm] = useState(false);
+
+  // Dispatch links here with ?q=<SKU> for an order the shelf cannot fill
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get('q');
+    if (asked) setSearch(asked);
+  }, []);
 
   const q = useOrders(days, safety, scope ?? undefined);
   const buy = useCreatePurchase();
@@ -94,12 +100,18 @@ export function OrderingPage() {
       <PageBody className="space-y-4">
         <MetricBand>
           <Metric label="Units to order" value={q.isLoading ? '…' : n(s?.units_to_order)} note={`across ${n(s?.skus_to_order)} lines`} />
-          <Metric label="Order now" value={n(s?.order_now)} note="under 3 days of cover" tone={s && s.order_now > 0 ? 'bad' : 'neutral'} />
+          <Metric label="Order now" value={n(s?.order_now)} note="customers waiting, or under 3 days of cover" tone={s && s.order_now > 0 ? 'bad' : 'neutral'} />
           <Metric label="Order soon" value={n(s?.order_soon)} note="under a week of cover" tone={s && s.order_soon > 0 ? 'warn' : 'neutral'} />
           <Metric label="Already on order" value={n(q.data?.on_order_units)} note="not ordered again until received" />
         </MetricBand>
 
         {q.isError && <Notice>{errorMessage(q.error)}</Notice>}
+        {s?.units_customers_waiting ? (
+          <Notice tone="warn">
+            Customers are waiting for {n(s.units_customers_waiting)} units the shelves cannot fill
+            ({n(s.skus_with_customers_waiting ?? 0)} {s.skus_with_customers_waiting === 1 ? 'product' : 'products'}). They are at the top of the list.
+          </Notice>
+        ) : null}
         {q.isLoading && <Notice tone="info">Working out what to order…</Notice>}
 
         {can.edit && s && s.units_to_order > 0 && (
@@ -147,7 +159,7 @@ export function OrderingPage() {
               <THead>
                 <tr>
                   <TH>Priority</TH><TH>Product</TH><TH>Warehouse</TH>
-                  <TH align="right">Order</TH><TH align="right">Free stock</TH><TH align="right">On order</TH>
+                  <TH align="right">Order</TH><TH align="right">Waiting</TH><TH align="right">Free stock</TH><TH align="right">On order</TH>
                   <TH align="right">Lead</TH><TH align="right">Demand</TH><TH align="right">Cover</TH>
                 </tr>
               </THead>
@@ -162,6 +174,10 @@ export function OrderingPage() {
                     </TD>
                     <TD className="whitespace-nowrap">{r.warehouse_id} <span className="text-ink-subtle">{r.city}</span></TD>
                     <TD align="right" strong>{n(r.units_to_order)}</TD>
+                    <TD align="right" className={r.waiting ? 'font-medium text-danger-text' : 'text-ink-subtle'}
+                      title={r.waiting ? 'units customers already ordered that the shelf cannot fill' : undefined}>
+                      {r.waiting ? n(r.waiting) : '—'}
+                    </TD>
                     <TD align="right">{n(r.available)}</TD>
                     <TD align="right" muted>{r.on_order > 0 ? n(r.on_order) : '—'}</TD>
                     <TD align="right" muted>{r.lead_time_days} d</TD>
@@ -170,7 +186,9 @@ export function OrderingPage() {
                   </TR>
                 ))}
                 {rows.length === 0 && !q.isLoading && (
-                  <Empty colSpan={9}>{search ? 'No product matches that.' : 'Nothing to order for this period. Stock covers the forecast.'}</Empty>
+                  <Empty colSpan={10}>{search
+                    ? `Nothing to order for "${search}" right now: its stock and what is on order cover the forecast and every customer waiting.`
+                    : 'Nothing to order for this period. Stock covers the forecast.'}</Empty>
                 )}
               </tbody>
             </Table>
@@ -186,6 +204,7 @@ export function OrderingPage() {
               <Facts rows={[
                 ['Order', <strong key="o">{n(picked.units_to_order)} units</strong>],
                 ['Priority', <Badge key="p" variant={TONE[picked.priority]}>{picked.priority}</Badge>],
+                ['Customers waiting', picked.waiting ? `${n(picked.waiting)} units the shelf cannot fill` : 'none'],
                 ['Supplier lead time', `${picked.lead_time_days} days`],
                 ['Must cover', `${picked.cover_days} days`],
                 [`Demand over ${picked.cover_days} days`, `${n(picked.forecast_units)} units`],

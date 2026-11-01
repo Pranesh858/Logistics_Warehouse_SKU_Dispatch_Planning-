@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +9,7 @@ import { Empty, Rail, Table, TableFrame, TD, TH, THead, TR } from '@/components/
 import { errorMessage } from '@/lib/api';
 import { useReviewLine } from '../hooks';
 import type { Plan, PlanLine } from '../types';
-import { fmt, fmtDate, STATUS_LABEL, STATUS_VARIANT } from './format';
+import { fmt, fmtDate, shortOfStock, STATUS_LABEL, STATUS_VARIANT } from './format';
 
 type Filter = 'attention' | 'tosend' | 'all';
 
@@ -108,7 +109,16 @@ export function PlanTable({ plan, editable }: { plan: Plan; editable: boolean })
                     <TD muted className="whitespace-nowrap">{fmtDate(l.due_date)}</TD>
                     <TD align="right">{fmt(l.qty_ordered)}</TD>
                     <TD align="right">{fmt(l.qty_allocated)}</TD>
-                    <TD><Badge variant={STATUS_VARIANT[l.status] ?? 'secondary'}>{STATUS_LABEL[l.status] ?? l.status}</Badge></TD>
+                    <TD>
+                      <Badge variant={STATUS_VARIANT[l.status] ?? 'secondary'}>{STATUS_LABEL[l.status] ?? l.status}</Badge>
+                      {/* under the badge, not beside it: beside it the wide table pushed it out of sight */}
+                      {draft && shortOfStock(l) && (
+                        <Link href={`/ordering?q=${l.product_id}`} title="Units to order already counts these units; raise the purchase order there"
+                          className="mt-0.5 block whitespace-nowrap text-caption font-medium text-primary hover:underline">
+                          Order {fmt(l.qty_short)} missing
+                        </Link>
+                      )}
+                    </TD>
                     <TD className="whitespace-nowrap">
                       {l.truck_assignments.length
                         ? l.truck_assignments.map((a) => a.truck_name + (l.truck_assignments.length > 1 ? ` (${fmt(a.qty)})` : '')).join(', ')

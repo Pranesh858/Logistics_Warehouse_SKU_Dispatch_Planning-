@@ -144,3 +144,30 @@ def test_an_admin_connects_erpnext_and_its_orders_reach_the_plan(client, erp_con
 def test_erpnext_is_only_offered_for_the_erp(client):
     r = client.put(f"{API}/integrations/settings/wms", json={"kind": "erpnext", "base_url": "http://x", "enabled": False})
     assert r.status_code == 422
+
+
+# ----------------------------------------------------------------- the seed script's demo orders
+def test_demo_orders_have_as_many_lines_as_asked(capsys):
+    """Each product line of a sales order is one order in the planner, so the line count decides how many arrive."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import erpnext_seed
+
+    class FakeErp:
+        def __init__(self):
+            self.made = []
+
+        def submit(self, doctype, doc):
+            self.made.append(doc)
+            return {"name": f"SAL-ORD-{len(self.made):05d}"}
+
+    for lines in (1, 2, 3):
+        erp = FakeErp()
+        erpnext_seed.demo_orders(erp, "Dispatch Demo", "DD", 4, lines)
+        assert len(erp.made) == 4
+        for so in erp.made:
+            assert len(so["items"]) == lines
+            assert len({it["item_code"] for it in so["items"]}) == lines            # different products
+            assert {it["warehouse"] for it in so["items"]} == {so["set_warehouse"]}
+        assert f"so {4 * lines} orders in the planner" in capsys.readouterr().out

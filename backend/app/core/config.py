@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     seed_skus_path: str = str(BASE_DIR / "data/seed_skus.csv")
     seed_stock_path: str = str(BASE_DIR / "data/seed_stock.csv")
     auto_plan_on_startup: bool = True          # build the first recommended plan without anyone asking
+    # False: a new plan is built only when a planner presses Generate plan (and after an approval); new orders,
+    # stock counts, receipts and the like only mark the plan out of date. True: each of them rebuilds the plan.
+    auto_replan: bool = False
     seed_trucks_on_startup: bool = True        # create sample trucks when none exist yet
     default_truck_capacity: float = 120.0      # units per sample truck
     default_trucks_per_warehouse: int = 3

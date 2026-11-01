@@ -23,7 +23,8 @@ async def _view(db, plan, user, warehouse_id: str | None = None):
 
 @router.get("/plans/current", response_model=PlanOut | None)
 async def current_plan(db: DB, user: CurrentUser, warehouse_id: str | None = None):
-    """The recommended plan waiting for the planner (built automatically; nobody has to ask for it)."""
+    """The recommended plan waiting for the planner. It is rebuilt when a planner presses Generate plan;
+    `changes` lists what happened since then."""
     return await _view(db, await service.current_plan(db), user, warehouse_id)
 
 
@@ -44,6 +45,7 @@ async def plan_outlook(plan_id: int, db: DB, user: CurrentUser, warehouse_id: st
 
 @router.post("/plans/recalculate", response_model=PlanOut | None)
 async def recalculate(db: DB, user: Planner):
+    """Generate plan: a fresh recommendation from the open orders and the stock as they are now."""
     return await _view(db, await service.recommend_plan(db, trigger="recalculate"), user)
 
 
@@ -86,13 +88,14 @@ async def exports(plan_id: int, db: DB, user: CurrentUser, warehouse_id: str | N
              "error": l.error, "exported_at": l.exported_at} for l in logs]
 
 
-@router.post("/orders", response_model=PlanOut)
+@router.post("/orders", response_model=PlanOut | None)
 async def add_orders(body: OrdersIn, db: DB, user: Planner):
-    """New orders arrive -> a fresh recommendation is built automatically (still needs approval).
-    A planner can only add orders for their own warehouse."""
+    """New orders are stored and join the plan at the next Generate plan; the current plan comes back with them
+    listed as a change. A planner can only add orders for their own warehouse."""
     for o in body.orders:
         ensure_warehouse(user, o.warehouse_id)
-    return await _view(db, await service.ingest_orders(db, body.orders), user)
+    plan = await service.ingest_orders(db, body.orders) or await service.current_plan(db)
+    return await _view(db, plan, user)
 
 
 @router.get("/blocked-skus")

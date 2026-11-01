@@ -26,6 +26,7 @@ class IntegrationError(Exception):
 # --------------------------------------------------------------------------- interfaces
 class InventorySource(Protocol):
     async def fetch(self) -> list[dict]: ...          # [{product_id, warehouse_id, stock_on_hand}]
+    async def receive(self, receipt: dict) -> None: ...   # {reference, warehouse_id, lines: [{product_id, units}]}
 
 
 class OrderSource(Protocol):
@@ -61,6 +62,14 @@ class SimulatedInventory:
             delta = float(rng.integers(20, 200)) * (1 if rng.random() < 0.5 else -0.5)
             self.stock[key] = max(0.0, round(self.stock[key] + delta))
         return [{"product_id": p, "warehouse_id": w, "stock_on_hand": q} for (p, w), q in self.stock.items()]
+
+    async def receive(self, receipt: dict) -> None:
+        """Goods in. Before the first fetch there is no stock book yet; it starts from ours, which has them."""
+        if self.stock is None:
+            return
+        for ln in receipt["lines"]:
+            key = (int(ln["product_id"]), receipt["warehouse_id"])
+            self.stock[key] = self.stock.get(key, 0.0) + float(ln["units"])
 
 
 class SimulatedOrders:
@@ -159,6 +168,18 @@ class HttpInventory:
 
     async def fetch(self) -> list[dict]:
         return remap(await _get(f"{self.base}/inventory", self.key, transport=self.transport), self.mapping)
+
+    async def receive(self, receipt: dict) -> None:
+        """POST {WMS_BASE_URL}/receipts {reference, warehouse_id, lines: [{product_id, units}]}: goods in, so the
+        WMS count (which our stock sync copies) includes them. The WMS must ignore a reference it already has."""
+        url = f"{self.base}/receipts"
+        try:
+            async with httpx.AsyncClient(timeout=30, transport=self.transport) as c:
+                r = await c.post(url, json=receipt, headers=_headers(self.key))
+        except httpx.HTTPError as exc:
+            raise IntegrationError(f"Cannot reach {url}: {exc}") from exc
+        if r.status_code >= 300:
+            raise IntegrationError(f"{url} answered HTTP {r.status_code}: {r.text[:200]}")
 
 
 class HttpOrders:

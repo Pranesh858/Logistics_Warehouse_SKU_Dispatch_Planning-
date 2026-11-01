@@ -49,7 +49,7 @@ different SKU and show different quantities, but the shape is the same.
 
 | # | What happens | Say | Where to look in the dashboard |
 |---|---|---|---|
-| 1 | A Premium customer orders 98 units at WH06, which holds 38. | "An order lands in the system. Nothing ships until a planner approves." | **Orders and stock**, or **Dispatch** (the plan is rebuilt automatically). |
+| 1 | A Premium customer orders 98 units at WH06, which holds 38. | "An order lands in the system. Nothing ships until a planner approves." | **Orders and stock**, then **Dispatch > Generate plan** (the script presses it for you). |
 | 2 | The new plan fills 38 of 98 and reports the order short by 60 (status `PARTIAL`). | "The plan is honest about what the shelf can cover." | **Dispatch > Orders**: search the SKU. |
 | 3 | A sweep raises *runs out in 0.5 days at WH06*. | "Cover is judged against the forecast, so a thin shelf is flagged before it empties." | **Alerts**, and the badge in the sidebar. |
 | 4 | A transfer is proposed: 60 units WH01 to WH06, one day away. WH01 can spare 4,653. | "Another warehouse can cover it. The system only offers stock the donor can spare after its own demand." | **Dispatch > Transfers**. |
