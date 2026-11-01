@@ -15,7 +15,7 @@ class StockLevel(Base):
     warehouse_id: Mapped[str] = mapped_column(String(10), primary_key=True)
     qty: Mapped[float] = mapped_column(Float)
     source: Mapped[str] = mapped_column(String(20), default="wms")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, server_default=func.now())
 
 
 class IntegrationRun(Base):
@@ -29,7 +29,7 @@ class IntegrationRun(Base):
     status: Mapped[str] = mapped_column(String(10))                  # OK | FAILED
     rows: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str] = mapped_column(Text, default="")
-    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class IntegrationSetting(Base):
@@ -46,7 +46,7 @@ class IntegrationSetting(Base):
     field_map: Mapped[dict] = mapped_column(JSON, default=dict)           # {"inventory": {"product_id": "sku"}, ...}
     sync_minutes: Mapped[dict] = mapped_column(JSON, default=dict)        # {"inventory": 5, "orders": 5, "sales": 1440}
     updated_by: Mapped[str] = mapped_column(String(60), default="")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, server_default=func.now())
 
 
 class PurchaseOrder(Base):
@@ -69,4 +69,4 @@ class PurchaseOrder(Base):
     # Until the goods arrive these units count as "on order", so the same SKU is not ordered again tomorrow.
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     received_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())

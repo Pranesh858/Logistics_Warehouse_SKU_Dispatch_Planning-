@@ -61,7 +61,7 @@ async def login(body: LoginIn, db: DB):
             await record(db, user, "login_failed", f"{_recent_failures(name)} wrong password(s) in the last {settings.login_lockout_minutes} minutes")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
     _failures.pop(name, None)
-    user.last_login_at = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    user.last_login_at = dt.datetime.now()
     await db.commit()
     await record(db, user, "login", "", user.warehouse_id)
     token, ttl = create_token(user.id, user.role, user.warehouse_id, user.password_hash)

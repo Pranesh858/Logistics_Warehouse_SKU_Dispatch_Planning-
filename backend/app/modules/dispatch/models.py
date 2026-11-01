@@ -35,7 +35,7 @@ class BlockedSku(Base):
     product_id: Mapped[int] = mapped_column(Integer)
     warehouse_id: Mapped[str] = mapped_column(String(10))
     reason: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class Truck(Base):
@@ -48,7 +48,7 @@ class Truck(Base):
     warehouse_id: Mapped[str] = mapped_column(String(10), index=True)
     capacity_units: Mapped[float] = mapped_column(Float)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class TruckLoad(Base):
@@ -73,7 +73,7 @@ class Plan(Base):
     trigger: Mapped[str] = mapped_column(String(60))          # startup / new_orders / recalculate ...
     wave_capacity: Mapped[float | None] = mapped_column(Float, nullable=True)
     wave: Mapped[str | None] = mapped_column(String(40), nullable=True)   # e.g. "2026-10-31 Morning"; None = no waves
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
     approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -128,7 +128,7 @@ class LedgerEntry(Base):
     fulfilment: Mapped[str] = mapped_column(String(10), default="RESERVED", index=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     plan_id: Mapped[int] = mapped_column(Integer)
-    committed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    committed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
 
 
 class ExportLog(Base):
@@ -142,7 +142,7 @@ class ExportLog(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
 
 
 # Transfer lifecycle:  PROPOSED -> (planner approves) -> IN_TRANSIT -> RECEIVED
@@ -173,7 +173,7 @@ class StockTransfer(Base):
     earliest_due: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     eta: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     plan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # the plan whose shortage raised it
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now())
     approved_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     received_by: Mapped[str | None] = mapped_column(String(60), nullable=True)
@@ -191,4 +191,4 @@ class TransferLane(Base):
     to_warehouse_id: Mapped[str] = mapped_column(String(10), primary_key=True)
     transit_days: Mapped[int] = mapped_column(Integer)
     updated_by: Mapped[str] = mapped_column(String(60), default="")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, server_default=func.now())

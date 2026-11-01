@@ -37,6 +37,7 @@ services:
       CORS_ORIGINS: '["http://localhost:${DASHBOARD_PORT:-3000}"]'
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-value}
       DEBUG: "false"
+      TZ: ${TZ:-Asia/Kolkata}         # local time for stored times and the dispatch wave cut-offs
     volumes:
       # Seed files, the full sales history if you have it, and uploads all live in ./data on your machine.
       - ./data:/app/data

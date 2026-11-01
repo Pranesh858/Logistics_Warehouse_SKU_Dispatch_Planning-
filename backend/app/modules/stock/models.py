@@ -52,4 +52,4 @@ class StockMovement(Base):
     source: Mapped[str] = mapped_column(String(20))        # manual, webhook, wms, dispatch, transfer, purchase, seed
     username: Mapped[str | None] = mapped_column(String(60), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now(), index=True)

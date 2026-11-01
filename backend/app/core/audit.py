@@ -12,7 +12,7 @@ class AuditEntry(Base):
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, server_default=func.now(), index=True)
     username: Mapped[str] = mapped_column(String(60), index=True)
     role: Mapped[str] = mapped_column(String(12), default="")
     action: Mapped[str] = mapped_column(String(40), index=True)

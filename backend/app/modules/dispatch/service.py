@@ -577,7 +577,7 @@ async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehou
             if ld.order_id in mine:
                 assigned[ld.order_id] = assigned.get(ld.order_id, 0.0) + ld.qty
 
-        plan.approved_by, plan.approved_at = approved_by.strip(), dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        plan.approved_by, plan.approved_at = approved_by.strip(), dt.datetime.now()
         sendable = []
         for l in lines:
             if l.status == "COMMITTED":
@@ -638,7 +638,7 @@ async def _send_pending(db: AsyncSession, plan: Plan, warehouse_id: str | None =
     failed_in_a_row = 0
     async with session:
         for i, ent in enumerate(pending, start=1):
-            now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            now = dt.datetime.now()
             if failed_in_a_row >= settings.wms_give_up_after:
                 db.add(ExportLog(plan_id=plan.id, order_id=ent.order_id, qty=ent.qty_committed, export_status="FAILED",
                                  attempts=0, error=f"not tried: the WMS failed {failed_in_a_row} orders in a row, "

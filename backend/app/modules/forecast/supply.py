@@ -31,7 +31,7 @@ class LeadTime(Base):
     lead_time_days: Mapped[int] = mapped_column(Integer)
     supplier: Mapped[str] = mapped_column(String(120), default="")
     updated_by: Mapped[str] = mapped_column(String(60), default="")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now, server_default=func.now())
 
 
 async def lead_times(db: AsyncSession) -> dict[int, int]:
