@@ -3,15 +3,9 @@
 Two ways an order goes out only in part:
   * it is bigger than every truck of its warehouse, so it is split and only what fits is loaded;
   * there is not enough stock, so only some of it is allocated.
-In both cases the units that were not sent should come back in a later plan, not be dropped.
-
-KNOWN BUG, not fixed yet: once part of an order is committed the engine treats the whole order as done
-(engine.allocate, "already_committed_carried_forward"), so the rest is never planned again. These tests are marked
-xfail(strict=True): they fail today, and the suite will flag them as soon as a fix makes them pass.
+In both cases the units not sent come back in a later plan, as an open order of their own ("<order>-B1"). They used
+to be dropped: once part of an order was committed, the engine treated the whole order as done.
 """
-import pytest
-
-KNOWN_BUG = pytest.mark.xfail(strict=True, reason="the unsent part of a partly dispatched order is dropped")
 API = "/api/v1"
 WH = "WH01"
 
@@ -58,13 +52,6 @@ def well_stocked_product(client):
     return max(skus, key=lambda s: s["stock_on_hand"])
 
 
-def report(tag, ln, plan, oid):
-    left = [u for u in plan["unassigned"] if u["order_id"] == oid]
-    print(f"\n[{tag}] next plan: status={ln['status']} ordered={ln['qty_ordered']} allocated={ln['qty_allocated']} "
-          f"short={ln['qty_short']} final={ln['final_qty']} send={ln['send_qty']} unassigned={left}")
-
-
-@KNOWN_BUG
 def test_leftover_of_an_order_split_across_trucks_comes_back(client):
     oid = "TEST-SPLIT"
     sku = well_stocked_product(client)
@@ -78,14 +65,15 @@ def test_leftover_of_an_order_split_across_trucks_comes_back(client):
     assert sent[oid]["qty"] == 5                                           # 5 went to the WMS
 
     after = current(client)
-    ln = line(after, oid)
-    report("split", ln, after, oid)
-    left = sum(u["qty"] for u in after["unassigned"] if u["order_id"] == oid)
+    done = line(after, oid)
+    assert done["status"] == "COMMITTED" and done["qty_ordered"] == 5 and done["qty_short"] == 0
+    rest = line(after, f"{oid}-B1")
+    left = sum(u["qty"] for u in after["unassigned"] if u["order_id"] == f"{oid}-B1")
     # The other 25 must still be planned: on a truck now, or waiting for one.
-    assert ln["send_qty"] + left == 25, "the 25 units that did not fit were dropped after approval"
+    assert rest["qty_ordered"] == 25 and rest["send_qty"] + left == 25
+    assert (rest["customer_id"], rest["customer_tier"], rest["product_id"]) == ("C-TEST", "Premium", sku["product_id"])
 
 
-@KNOWN_BUG
 def test_stock_short_part_of_an_order_is_sent_once_stock_arrives(client):
     oid = "TEST-SHORT"
     all_trucks_big(client)
@@ -100,11 +88,39 @@ def test_stock_short_part_of_an_order_is_sent_once_stock_arrives(client):
     sent = approve(client)
     assert sent[oid]["qty"] == got
 
+    waiting = line(current(client), f"{oid}-B1")
+    assert waiting["qty_ordered"] == have + 50 - got and waiting["qty_allocated"] == 0     # nothing on the shelf yet
+
     r = client.post(f"{API}/integrations/stock", json={
         "items": [{"product_id": pid, "warehouse_id": WH, "stock_on_hand": have + 500}], "reason": "delivery"})
     assert r.status_code == 200, r.text
 
-    after = current(client)
-    ln = line(after, oid)
-    report("short", ln, after, oid)
-    assert ln["final_qty"] - got > 0, "new stock arrived but the rest of the order was never planned again"
+    rest = line(current(client), f"{oid}-B1")
+    assert rest["status"] == "FULL" and rest["final_qty"] == have + 50 - got
+
+
+def test_the_rest_of_a_rest_is_the_next_number_and_every_unit_goes_out_once(client):
+    oid = "TEST-CHAIN"
+    sku = well_stocked_product(client)
+    one_truck(client, capacity=5)
+    first_in_line_order(client, oid, sku["product_id"], qty=12)
+
+    assert approve(client)[oid]["qty"] == 5                                # 7 left
+    assert approve(client)[f"{oid}-B1"]["qty"] == 5                        # 2 left
+    assert approve(client)[f"{oid}-B2"]["qty"] == 2                        # none left
+    plan = current(client)
+    assert line(plan, f"{oid}-B3") is None
+    assert sum(line(plan, o)["qty_ordered"] for o in (oid, f"{oid}-B1", f"{oid}-B2")) == 12
+
+
+def test_shipping_the_sent_part_leaves_the_rest_open(client):
+    oid = "TEST-SHIP"
+    sku = well_stocked_product(client)
+    one_truck(client, capacity=5)
+    first_in_line_order(client, oid, sku["product_id"], qty=30)
+    approve(client)
+
+    r = client.post(f"{API}/integrations/confirmations", json={"items": [{"order_id": oid, "status": "shipped"}]})
+    assert r.status_code == 200 and r.json()["shipped"] == 1, r.text
+    plan = current(client)
+    assert line(plan, f"{oid}-B1")["qty_ordered"] == 25

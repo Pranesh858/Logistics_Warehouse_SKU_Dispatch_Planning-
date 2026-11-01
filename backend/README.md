@@ -332,6 +332,7 @@ looked at them. An out-of-date plan is still safe to approve: approval checks th
 - After the allocation engine, the dispatchable orders are loaded onto trucks of their own warehouse in priority order
   (Premium > Standard > Basic, due date, FIFO). An order goes whole into the first truck it fits; one larger than the
   biggest truck is split across trucks. Anything that fits nowhere is listed as `unassigned` and is **not** sent.
+- When only part of an order is sent (no truck space, not enough stock, or the planner lowered the quantity), the sent part keeps the order id and the rest becomes an open order of its own, `<order>-B1`, with the same customer, tier and times. It joins the next plan, so nothing is lost; if the customer no longer wants it, the planner holds it back.
 - The plan response carries `trucks` (load, free space, fill %, orders), `unassigned`, and per line `truck_assignments`
   and `send_qty`. Changing trucks, overriding a line or moving an order re-loads the plan straight away; the planner's
   manual truck choices are kept when the plan is rebuilt, as long as they still fit.

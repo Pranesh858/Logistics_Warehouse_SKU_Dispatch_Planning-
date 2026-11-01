@@ -10,6 +10,7 @@ Dispatch planning workflow:
 import asyncio
 import contextlib
 import datetime as dt
+import re
 
 import pandas as pd
 from sqlalchemy import delete, func, select
@@ -599,6 +600,24 @@ async def review_line(db: AsyncSession, plan_id: int, order_id: str, decision: s
 
 
 # ----------------------------------------------------------------- approve + export
+async def _split_off_rest(db: AsyncSession, order_id: str, sent: float) -> None:
+    """Part of an order is going out: the units not sent become an open order of their own, "<order>-B1", so a later
+    plan picks them up. The reservation, the WMS and its confirmations all work per order id, so the sent part keeps
+    the id and closes as usual. It keeps the order's times too, so the rest counts as carried over from its wave."""
+    order = await db.get(Order, order_id)
+    if order is None or order.qty_ordered - sent <= 1e-6:
+        return
+    base = re.sub(r"-B\d+$", "", order_id)[:36]        # the rest of a rest is -B2, not -B1-B1; ids hold 40 characters
+    n = 1
+    while await db.get(Order, f"{base}-B{n}") is not None or await db.get(LedgerEntry, f"{base}-B{n}") is not None:
+        n += 1
+    db.add(Order(order_id=f"{base}-B{n}", order_timestamp=order.order_timestamp, customer_id=order.customer_id,
+                 customer_tier=order.customer_tier, product_id=order.product_id, warehouse_id=order.warehouse_id,
+                 qty_ordered=round(order.qty_ordered - sent, 2), due_date=order.due_date))
+    order.qty_ordered = sent
+    await db.flush()
+
+
 async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehouse_id: str | None = None) -> Plan:
     """warehouse_id: approve only that warehouse's orders (a planner's approval). None = every warehouse (admin)."""
     async with _lock():
@@ -647,6 +666,7 @@ async def approve_plan(db: AsyncSession, plan_id: int, approved_by: str, warehou
             db.add(LedgerEntry(order_id=l.order_id, product_id=l.product_id, warehouse_id=l.warehouse_id,
                                qty_committed=qty, customer_tier=l.customer_tier, committed_decision=l.decision,
                                plan_id=plan.id, wms_status="FAILED"))
+            await _split_off_rest(db, l.order_id, qty)
         # The reservations are kept before anything is sent, and the transaction is closed: the sends below are
         # network calls, and holding the database for their whole length blocked every other write (on SQLite the
         # whole database) for minutes with a large plan. Until every order is through, the plan reads as partly
