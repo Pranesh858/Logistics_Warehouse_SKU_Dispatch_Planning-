@@ -4,6 +4,8 @@ Backend for demand-based warehouse SKU dispatch planning and allocation.
 
 **Owner:** group:default/team-4-logistics-sku-dispatch · **Stack:** FastAPI · SQLAlchemy async · PostgreSQL · Alembic
 
+**For the people running it:** [Planner SOP](docs/PLANNER_SOP.md) · [Runbook](docs/RUNBOOK.md) · [How the client brief maps to the product](docs/BRIEF_TRACEABILITY.md)
+
 ---
 
 ## Getting started
@@ -290,6 +292,8 @@ The planner never has to ask for a plan, and nothing reaches the WMS without the
 | Alerts | `POST /alerts/sweep` | Re-check every rule now instead of waiting for the schedule |
 | Alerts | `POST /alerts/test-delivery` | Send a test alert to every configured channel (admin) |
 | Accuracy | `GET /forecast/accuracy` | Predicted vs actual on past data, re-measured after each retrain |
+| KPIs | `GET /kpis?warehouse_id=&date_from=&date_to=` | Fill rate, order fill rate, on-time share, stock-outs, orders at risk, the service-level target (`SERVICE_LEVEL_TARGET_PCT`, default 95%) with pass or fail, and a daily trend |
+| Scenarios | `POST /scenarios/run` | A simulated plan under demand, stock and blocked-SKU changes, against the current plan. Writes one audit entry and nothing else (planner, admin) |
 
 ### Dispatch waves
 

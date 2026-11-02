@@ -1,6 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@/features/auth/store';
+import { useAuth, useScope } from '@/features/auth/store';
 import { kpiApi } from './api';
+
+// Under 'dispatch', so approving, generating a plan or a sync refreshes the figures with the plan they come from.
+export const useServiceKpis = () => {
+  const wh = useScope();
+  return useQuery({ queryKey: ['dispatch', 'kpis', wh], queryFn: () => kpiApi.service(wh ?? undefined), refetchInterval: 60_000 });
+};
 
 // A planner gets their own warehouse from the server; the page's own warehouse picker handles the rest.
 export const useAccuracy = () => {

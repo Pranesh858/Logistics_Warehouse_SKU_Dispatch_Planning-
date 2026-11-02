@@ -20,6 +20,8 @@ from app.integrations import models as _integration_models  # noqa: F401  (regis
 from app.modules.forecast import supply as _supply_models  # noqa: F401  (registers supplier_lead_times)
 from app.modules.alerts import models as _alert_models  # noqa: F401  (registers the alerts table)
 from app.modules.alerts.router import router as alerts_router
+from app.modules.kpis.router import router as kpis_router
+from app.modules.scenarios.router import router as scenarios_router
 from app.modules.stock import models as _stock_models  # noqa: F401  (registers the master data and stock ledger)
 from app.modules.stock import service as stock_service
 from app.modules.stock.router import router as stock_router
@@ -102,6 +104,8 @@ app.include_router(dispatch_router, prefix="/api/v1")
 app.include_router(integrations_router, prefix="/api/v1")
 app.include_router(stock_router, prefix="/api/v1")
 app.include_router(alerts_router, prefix="/api/v1")
+app.include_router(kpis_router, prefix="/api/v1")
+app.include_router(scenarios_router, prefix="/api/v1")
 
 
 @app.get("/health")

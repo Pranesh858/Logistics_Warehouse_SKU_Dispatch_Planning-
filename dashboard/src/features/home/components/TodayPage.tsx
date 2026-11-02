@@ -12,6 +12,7 @@ import { useAuth, useScope } from '@/features/auth/store';
 import { useCurrentPlan, useOutlook } from '@/features/dispatch/hooks';
 import { useOrders } from '@/features/forecast/hooks';
 import { useIntegrationStatus } from '@/features/integrations/hooks';
+import { ServiceKpiPanel } from '@/features/kpi/components/ServiceKpiPanel';
 import { errorMessage } from '@/lib/api';
 
 const n = (v: number | null | undefined, d = 0) =>
@@ -96,6 +97,8 @@ export function TodayPage() {
         </MetricBand>
 
         {plan.isError && <Notice>{errorMessage(plan.error)}</Notice>}
+
+        <ServiceKpiPanel />
 
         <Section title="What needs you" lead={jobs.length ? undefined : 'Nothing is waiting. The plan is approved and stock covers the week.'}>
           {jobs.length > 0 && (

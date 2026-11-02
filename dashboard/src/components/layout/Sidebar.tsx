@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, Bell, ClipboardCheck, LineChart, LogOut, PackagePlus, Plug, ShoppingCart, Truck, Users, X,
+  Activity, Bell, ClipboardCheck, FlaskConical, LineChart, LogOut, PackagePlus, Plug, ShoppingCart, Truck, Users, X,
 } from 'lucide-react';
 import { useAlertSummary } from '@/features/alerts/hooks';
 import { useAuth } from '@/features/auth/store';
@@ -19,6 +19,7 @@ const WORK: Item[] = [
   { href: '/entry', label: 'Orders and stock', icon: <PackagePlus className="h-4 w-4" />, edit: true },
   { href: '/ordering', label: 'Ordering', icon: <ShoppingCart className="h-4 w-4" /> },
   { href: '/forecast', label: 'Forecast', icon: <LineChart className="h-4 w-4" /> },
+  { href: '/scenarios', label: 'Scenarios', icon: <FlaskConical className="h-4 w-4" />, edit: true },
   { href: '/kpi', label: 'Accuracy', icon: <Activity className="h-4 w-4" /> },
   { href: '/alerts', label: 'Alerts', icon: <Bell className="h-4 w-4" />, badge: 'alerts' },
 ];

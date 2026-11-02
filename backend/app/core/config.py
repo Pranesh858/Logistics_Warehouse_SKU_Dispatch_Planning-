@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     intervals_path: str = str(BASE_DIR / "app/ml/artifacts/forecast_intervals.json")
     backtest_path: str = str(BASE_DIR / "app/ml/artifacts/backtest.json")   # predicted vs actual on past data
     accuracy_target_mape_pct: float = 20.0     # the BRD target the accuracy page is judged against
+    service_level_target_pct: float = 95.0     # the fill rate the KPI panel passes or fails against
     refresh_accuracy_after_retrain: bool = True   # re-score the forecast when a new model is promoted
     # Sales history CSV (~37 MB, NOT committed to git). Put it at data/ or point this elsewhere.
     retrain_estimators: int = 300              # trees in a retrained model (lower = faster, used by tests)

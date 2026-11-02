@@ -63,7 +63,8 @@ async def _ledger_df(db: AsyncSession) -> pd.DataFrame:
 
 
 async def _check_stock(db: AsyncSession, lines: list[PlanLine]) -> None:
-    """Hard invariant: committed + about-to-send units never exceed the shelf, per SKU x warehouse."""
+    """Hard invariant: committed + about-to-send units never exceed the shelf, per SKU x warehouse. A SKU sending
+    nothing is not checked: stock counted below what is already reserved must not stop every other order's approval."""
     stock = {(r.product_id, r.warehouse_id): r.stock_on_hand for r in (await _stock()).itertuples()}
     ledger = await _ledger_df(db)
     used = ledger.groupby(["product_id", "warehouse_id"])["qty_reserved"].sum().to_dict() if len(ledger) else {}
@@ -71,7 +72,7 @@ async def _check_stock(db: AsyncSession, lines: list[PlanLine]) -> None:
     for ln in lines:
         new[(ln.product_id, ln.warehouse_id)] = new.get((ln.product_id, ln.warehouse_id), 0.0) + _final_qty(ln)
     for key, qty in new.items():
-        if used.get(key, 0.0) + qty > stock.get(key, 0.0) + 1e-6:
+        if qty > 1e-6 and used.get(key, 0.0) + qty > stock.get(key, 0.0) + 1e-6:
             raise BadRequestError(
                 f"SKU {key[0]} at {key[1]}: {qty:g} to dispatch + {used.get(key, 0.0):g} already committed "
                 f"exceeds {stock.get(key, 0.0):g} on hand"
@@ -176,9 +177,8 @@ async def pending_changes(db: AsyncSession) -> list[dict]:
     return out
 
 
-async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | None = None,
-                            carry_except: str | None = None) -> Plan | None:
-    started = dt.datetime.now()      # changes noted after this are not in the plan, so they stay noted
+async def plan_inputs(db: AsyncSession) -> dict | None:
+    """What a plan is built from, as in-memory copies: changing them changes nothing stored. None without orders."""
     rows = (await db.execute(select(Order))).scalars().all()
     if not rows:
         return None
@@ -192,22 +192,38 @@ async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | N
     # With dispatch waves the plan covers one wave: its own orders and those of earlier waves still open (carried
     # over). Orders of later waves wait and hold no stock. Orders already sent stay, whatever their wave.
     wave = waves.current()
+    wave_of: dict = {}
     if wave is not None:
         wave_of = {r.order_id: waves.wave_of(r.order_timestamp) for r in rows}
         sent = set(ledger["order_id"])
         orders = orders[orders["order_id"].map(lambda o: wave_of[o].rank <= wave.rank or o in sent)].copy()
         orders["carried"] = orders["order_id"].map(lambda o: wave_of[o].rank < wave.rank)
+    return {"orders": orders, "stock": stock, "blocked": blocked, "ledger": ledger, "wave": wave, "wave_of": wave_of}
 
+
+async def allocate_frame(inputs: dict, verify: bool = True) -> pd.DataFrame:
+    """Run the allocation engine over plan_inputs. Touches nothing stored."""
+    orders, stock, ledger, wave = inputs["orders"], inputs["stock"], inputs["ledger"], inputs["wave"]
     if orders.empty:                       # nothing for this wave yet: an empty plan still says which wave it is
-        plan_df = pd.DataFrame()
-    else:
-        plan_df = await asyncio.to_thread(engine.allocate, orders, stock, None, blocked, ledger)
+        return pd.DataFrame()
+    plan_df = await asyncio.to_thread(engine.allocate, orders, stock, None, inputs["blocked"], ledger)
+    if verify:
         bad = engine.verify_no_overallocation(plan_df, stock, ledger)
         if len(bad):
             raise RuntimeError(f"OVER-ALLOCATION detected for {len(bad)} SKU x warehouse pair(s); plan discarded")
-        if wave is not None:
-            plan_df["wave_id"] = plan_df["order_id"].map(lambda o: wave_of[o].key)
-        plan_df = engine.assign_waves(plan_df, settings.wave_capacity)
+    if wave is not None:
+        plan_df["wave_id"] = plan_df["order_id"].map(lambda o: inputs["wave_of"][o].key)
+    return engine.assign_waves(plan_df, settings.wave_capacity)
+
+
+async def _recommend_locked(db: AsyncSession, trigger: str, carry_from: Plan | None = None,
+                            carry_except: str | None = None) -> Plan | None:
+    started = dt.datetime.now()      # changes noted after this are not in the plan, so they stay noted
+    inputs = await plan_inputs(db)
+    if inputs is None:
+        return None
+    wave = inputs["wave"]
+    plan_df = await allocate_frame(inputs)
 
     # carry planner overrides from the draft being replaced
     old_draft = (await db.execute(

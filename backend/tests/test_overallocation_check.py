@@ -30,6 +30,55 @@ def test_guard_counts_what_the_ledger_still_holds():
     assert len(engine.verify_no_overallocation(over, stock, ledger)) == 1       # a real excess is still caught
 
 
+def test_guard_lets_a_plan_through_when_a_count_falls_below_what_is_reserved():
+    stock = pd.DataFrame([{"product_id": 1, "warehouse_id": WH, "city": "X", "stock_on_hand": 129.0}])
+    ledger = pd.DataFrame([{"order_id": "SENT", "product_id": 1, "warehouse_id": WH, "qty_committed": 200.0, "qty_reserved": 200.0}])
+    plan = pd.DataFrame([
+        {"order_id": "SENT", "product_id": 1, "warehouse_id": WH, "qty_allocated": 200.0, "status": "COMMITTED"},
+        {"order_id": "NEW", "product_id": 1, "warehouse_id": WH, "qty_allocated": 0.0, "status": "BACKORDERED"},
+    ])
+    assert engine.verify_no_overallocation(plan, stock, ledger).empty           # nothing new is handed out
+    assert len(engine.verify_no_overallocation(plan.assign(qty_allocated=[200.0, 1.0]), stock, ledger)) == 1
+
+
+def test_stock_counted_below_a_reservation_does_not_stop_planning(client):
+    """What happened in the demo: 200 units of #78 were approved, a fake WMS restart then reported 129 on the shelf,
+    and Generate plan and every approval failed for all warehouses, with a server error."""
+    skus = [s for s in client.get(f"{API}/forecast/skus").json() if s["warehouse_id"] == WH]
+    ordered = {ln["product_id"] for ln in client.get(f"{API}/dispatch/plans/current").json()["lines"]
+               if ln["warehouse_id"] == WH}
+    pid = next(s["product_id"] for s in skus if s["product_id"] not in ordered)
+    for t in client.get(f"{API}/dispatch/trucks").json():
+        client.patch(f"{API}/dispatch/trucks/{t['id']}", json={"capacity_units": 100000})
+
+    def order(oid, qty):
+        return {"orders": [{"order_id": oid, "order_timestamp": "2020-01-01T00:00:00", "customer_id": "C-T",
+                            "customer_tier": "Premium", "product_id": pid, "warehouse_id": WH, "qty_ordered": qty,
+                            "due_date": "2099-01-01T06:00:00"}]}
+
+    client.post(f"{API}/integrations/stock", json={"items": [{"product_id": pid, "warehouse_id": WH, "stock_on_hand": 200}]})
+    client.post(f"{API}/dispatch/orders", json=order("RES-A", 200))
+    plan = client.get(f"{API}/dispatch/plans/current").json()
+    assert client.post(f"{API}/dispatch/plans/{plan['id']}/approve", json={"warehouse_id": WH}).status_code == 200
+
+    count = client.post(f"{API}/integrations/stock", json={"items": [{"product_id": pid, "warehouse_id": WH, "stock_on_hand": 129}]})
+    assert count.status_code == 200, count.text
+
+    generated = client.post(f"{API}/dispatch/plans/recalculate")
+    assert generated.status_code == 200, generated.text
+    sent = next(ln for ln in generated.json()["lines"] if ln["order_id"] == "RES-A")
+    assert sent["status"] == "COMMITTED" and sent["qty_allocated"] == 200
+
+    r = client.post(f"{API}/dispatch/orders", json=order("RES-B", 5))              # the shelf is spoken for: nothing more
+    assert r.status_code == 200, r.text
+    new = next(ln for ln in r.json()["lines"] if ln["order_id"] == "RES-B")
+    assert new["qty_allocated"] == 0 and new["status"] == "BACKORDERED"
+
+    plan = client.get(f"{API}/dispatch/plans/current").json()                       # other orders can still be approved
+    approved = client.post(f"{API}/dispatch/plans/{plan['id']}/approve", json={"warehouse_id": "WH02"})
+    assert approved.status_code == 200, approved.text
+
+
 def test_a_shipped_order_the_erp_sends_again_is_not_planned_again(client, monkeypatch):
     """What happened in the demo: an order shipped, the ERP listed it again on its next sync, it came back as a new
     open order, and the guard counted its units twice. The plan for the SKU was thrown away from then on."""

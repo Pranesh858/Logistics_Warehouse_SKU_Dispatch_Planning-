@@ -13,6 +13,7 @@ import { ReportButtons } from '@/features/forecast/components/ReportButtons';
 import { errorMessage } from '@/lib/api';
 import { useAccuracy } from '../hooks';
 import type { Accuracy } from '../types';
+import { ServiceTrend } from './ServiceTrend';
 
 const PREDICTED = '#1F4B8E';
 const ACTUAL = '#0E7C5A';
@@ -61,6 +62,7 @@ export function KpiPage() {
         </MetricBand>
 
         <DemandChart data={d} />
+        <ServiceTrend />
         <MoreDetail data={d} />
       </PageBody>
     </>

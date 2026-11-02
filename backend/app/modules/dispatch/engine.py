@@ -110,15 +110,21 @@ def verify_no_overallocation(plan: pd.DataFrame, stock: pd.DataFrame, ledger: pd
     A COMMITTED order that the WMS has shipped holds nothing any more: its goods have left and the shelf figure
     already shows it, which is why `allocate` hands that stock out again. Counting it here as well reported
     over-allocation where there was none and threw the whole plan away, so it is counted as the ledger holds it.
+
+    Only a plan handing out new units can over-allocate. A stock count can fall below what approved orders already
+    hold (damage, a recount, a WMS restart); those units were promised earlier and this plan gives out nothing more,
+    so it must not be thrown away, which would stop planning for every warehouse over one SKU.
     """
+    committed = plan["status"] == "COMMITTED"
     held = plan["qty_allocated"]
     if ledger is not None and len(ledger) and "qty_reserved" in ledger.columns:
         reserved = ledger.groupby("order_id")["qty_reserved"].sum()
-        committed = plan["status"] == "COMMITTED"
         held = held.where(~committed, plan["order_id"].map(reserved).fillna(0.0))
-    alloc = plan.assign(qty_allocated=held).groupby(["product_id", "warehouse_id"])["qty_allocated"].sum().reset_index()
+    new_units = plan["qty_allocated"].where(~committed, 0.0)
+    alloc = (plan.assign(qty_allocated=held, new_units=new_units)
+             .groupby(["product_id", "warehouse_id"])[["qty_allocated", "new_units"]].sum().reset_index())
     chk = alloc.merge(stock, on=["product_id", "warehouse_id"], how="left")
-    return chk[chk["qty_allocated"] > chk["stock_on_hand"].fillna(0) + 1e-6]
+    return chk[(chk["new_units"] > 1e-6) & (chk["qty_allocated"] > chk["stock_on_hand"].fillna(0) + 1e-6)]
 
 
 def assign_waves(plan: pd.DataFrame, wave_capacity: float | None = None) -> pd.DataFrame:

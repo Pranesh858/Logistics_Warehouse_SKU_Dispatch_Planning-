@@ -1,5 +1,30 @@
 export interface DailyPoint { date: string; predicted: number; actual: number }
 
+/** GET /kpis. A rate is null when there is nothing behind it. */
+export interface ServiceKpis {
+  warehouse_id: string | null;
+  date_from: string | null;
+  date_to: string | null;
+  plan_version: number | null;
+  orders: number;
+  orders_fully_planned: number;
+  units_ordered: number;
+  units_planned: number;
+  fill_rate_pct: number | null;
+  order_fill_rate_pct: number | null;
+  partial: number;
+  held: number;
+  backordered: number;
+  blocked: number;
+  at_risk: number;
+  stock_outs: number;
+  shipped: number;
+  shipped_on_time: number;
+  on_time_pct: number | null;
+  service_level: { target_pct: number; measure: string; value_pct: number | null; met: boolean | null };
+  trend: { date: string; fill_rate_pct: number | null; on_time_pct: number | null; shipped: number }[];
+}
+
 export interface Accuracy {
   note: string;
   horizon_days: number;
