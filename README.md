@@ -10,6 +10,7 @@ truck-by-truck dispatch plan, and a planner approves it before anything reaches 
 |---|---|
 | `backend/` | FastAPI service: demand forecasting (LightGBM), allocation and truck planning, approvals, reports, WMS/ERP integrations |
 | `dashboard/` | Next.js dashboard: demand forecast, units to order, dispatch planning, forecast accuracy, integrations, user admin |
+| `demo-customer-shop/` | FreshCart, a separate demo store for placing customer orders into ERPNext. Not part of the planner: it reaches the planner only through ERPNext orders |
 
 Each folder has its own README with the full setup and API reference.
 

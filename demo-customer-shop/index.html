@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreshCart Demo Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* The dispatch planner's palette (dashboard src/app/globals.css): navy chrome, one blue accent, pale working page. */
+  :root {
+    color-scheme: light;
+    --bg: hsl(216 20% 97%); --card: #ffffff; --ink: hsl(219 46% 9%); --body: hsl(219 30% 22%); --muted: hsl(218 17% 43%);
+    --line: hsl(216 20% 90%); --line-strong: hsl(215 17% 80%);
+    --chrome: hsl(215 50% 12%); --chrome-text: hsl(213 30% 76%);
+    --brand: hsl(214 64% 34%); --brand-hi: hsl(214 62% 27%); --brand-ink: #ffffff; --brand-soft: hsl(214 60% 95%);
+    --warn: #8A500A; --err: #96281F; --ok: #0B5F46; --radius: 5px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--body); -webkit-font-smoothing: antialiased;
+         font: 14px/1.45 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  header { background: var(--chrome); color: #ffffff; padding: 12px 20px; display: flex; gap: 16px;
+           align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  header .tag { font-size: 12px; color: var(--chrome-text); }
+  header label { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 14px; }
+  select, input { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line-strong);
+                  border-radius: var(--radius); padding: 7px 10px; }
+  header select { border: 0; }
+  main { display: grid; grid-template-columns: 1fr 340px; gap: 20px; padding: 20px; max-width: 1280px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 16px; } }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .toolbar input { flex: 1 1 220px; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: var(--radius);
+          padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+  .chip.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px;
+          display: flex; flex-direction: column; gap: 6px; }
+  .item .cat { font-size: 12px; color: var(--muted); }
+  .item .name { font-weight: 600; color: var(--ink); min-height: 42px; }
+  .item .meta { font-size: 12px; color: var(--muted); }
+  .item button { margin-top: auto; }
+  button.primary { background: var(--brand); color: var(--brand-ink); border: 0; border-radius: var(--radius); padding: 9px 12px;
+                   font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:hover:not(:disabled) { background: var(--brand-hi); }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); border-radius: var(--radius);
+                 padding: 4px 9px; cursor: pointer; font: inherit; }
+  aside { display: flex; flex-direction: column; gap: 16px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  @media (min-width: 861px) { aside .panel:first-child { position: sticky; top: 16px; } }
+  .panel h2 { font-size: 15px; font-weight: 600; color: var(--ink); margin: 0 0 10px; }
+  .line { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .line .n { flex: 1; font-size: 14px; }
+  .line input { width: 64px; text-align: right; padding: 4px 6px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .field input, .field select { width: 100%; }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  .msg { margin-top: 10px; font-size: 14px; }
+  .msg.ok { color: var(--ok); } .msg.err { color: var(--err); }
+  .order { border-bottom: 1px solid var(--line); padding: 8px 0; font-size: 13px; }
+  .order:last-child { border-bottom: 0; }
+  .order b { font-size: 13px; color: var(--ink); }
+  .order .sub { color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--brand-soft); color: var(--brand); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>FreshCart</h1>
+    <div class="tag">Demo customer store</div>
+  </div>
+  <label>Deliver to <select id="city"></select></label>
+</header>
+
+<main>
+  <section>
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="Search products">
+    </div>
+    <div class="toolbar" id="cats"></div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h2>Your cart</h2>
+      <div id="cart"></div>
+      <div class="field">Your name <input id="name" placeholder="e.g. Priya" autocomplete="name" maxlength="40"></div>
+      <div class="row">
+        <div class="field">Customer type
+          <select id="tier"><option>Premium</option><option selected>Standard</option><option>Basic</option></select></div>
+        <div class="field">Delivery
+          <select id="delivery">
+            <option value="express">Express (today)</option>
+            <option value="next_day">Next day</option>
+            <option value="standard" selected>Standard (2 days)</option>
+          </select></div>
+      </div>
+      <button class="primary" id="checkout" style="width:100%;margin-top:14px">Place order</button>
+      <div class="msg" id="msg" role="status"></div>
+      <div class="note">Your order goes into ERPNext as a Sales Order. The dispatch planner picks it up at its next order sync, one order per item.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Orders placed here</h2>
+      <div id="orders"><div class="empty">None yet.</div></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+let cat = null, stores = {}, cities = [], cart = new Map(), activeCat = 'All';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const city = () => $('city').value;
+const fmt = (iso) => new Date(iso).toLocaleString([], {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'});
+
+async function init() {
+  cat = await (await fetch('/api/catalogue')).json();
+  stores = cat.stores; cities = cat.cities;
+  $('city').innerHTML = cities.map(c => `<option>${esc(c)}</option>`).join('');
+  try { const saved = localStorage.getItem('shop-city'); if (saved && stores[saved]) $('city').value = saved; } catch {}
+  try { $('name').value = localStorage.getItem('shop-name') || ''; } catch {}
+  $('city').onchange = () => { try { localStorage.setItem('shop-city', city()); } catch {}
+    cart.clear(); activeCat = 'All'; renderCats(); renderGrid(); renderCart(); };
+  $('q').oninput = renderGrid;
+  $('checkout').onclick = checkout;
+  $('tier').onchange = renderDelivery;
+  renderDelivery(); renderCats(); renderGrid(); renderCart(); loadOrders();
+}
+
+/** Express is for Premium customers: shown to others as unavailable, so they can see what Premium gets. */
+function renderDelivery() {
+  const allowed = cat.express_tiers.includes($('tier').value);
+  const express = $('delivery').querySelector('option[value="express"]');
+  express.disabled = !allowed;
+  express.textContent = allowed ? 'Express (today)' : 'Express (Premium only)';
+  if (!allowed && $('delivery').value === 'express') $('delivery').value = 'standard';
+}
+
+function renderCats() {
+  const cats = ['All', ...new Set(stores[city()].map(i => i.category))];
+  $('cats').innerHTML = cats.map(c => `<button class="chip ${c === activeCat ? 'on' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+  $('cats').querySelectorAll('button').forEach(b => b.onclick = () => { activeCat = b.dataset.c; renderCats(); renderGrid(); });
+}
+
+function renderGrid() {
+  const q = $('q').value.trim().toLowerCase();
+  const items = stores[city()].filter(i => (activeCat === 'All' || i.category === activeCat) && (!q || i.name.toLowerCase().includes(q)));
+  $('grid').innerHTML = items.length ? items.map(i => `
+    <div class="item">
+      <div class="cat">${esc(i.category)} ${i.organic ? '<span class="badge">Organic</span>' : ''}</div>
+      <div class="name">${esc(i.name)}</div>
+      <div class="meta">Item #${i.product_id} &middot; ${i.weight_g} g</div>
+      <button class="primary" data-p="${i.product_id}">${cart.has(i.product_id) ? 'Add one more' : 'Add to cart'}</button>
+    </div>`).join('') : '<div class="empty">No products match.</div>';
+  $('grid').querySelectorAll('button[data-p]').forEach(b => b.onclick = () => add(+b.dataset.p));
+}
+
+function add(pid) {
+  const item = stores[city()].find(i => i.product_id === pid);
+  const cur = cart.get(pid);
+  cart.set(pid, {name: item.name, qty: (cur ? cur.qty : 0) + 1});
+  renderCart(); renderGrid();
+}
+
+function renderCart() {
+  if (!cart.size) { $('cart').innerHTML = '<div class="empty">Add products from the list.</div>'; $('checkout').disabled = true; return; }
+  $('checkout').disabled = false;
+  $('cart').innerHTML = [...cart].map(([pid, l]) => `
+    <div class="line">
+      <span class="n">${esc(l.name)}</span>
+      <input type="number" min="1" max="500" value="${l.qty}" data-p="${pid}" aria-label="Quantity of ${esc(l.name)}">
+      <button class="ghost" data-x="${pid}" aria-label="Remove ${esc(l.name)}">&times;</button>
+    </div>`).join('');
+  $('cart').querySelectorAll('input').forEach(inp => inp.onchange = () => {
+    const v = Math.max(1, Math.min(500, parseInt(inp.value) || 1)); inp.value = v; cart.get(+inp.dataset.p).qty = v; });
+  $('cart').querySelectorAll('button[data-x]').forEach(b => b.onclick = () => { cart.delete(+b.dataset.x); renderCart(); renderGrid(); });
+}
+
+async function checkout() {
+  const msg = $('msg'); msg.className = 'msg'; msg.textContent = 'Placing order...';
+  try { localStorage.setItem('shop-name', $('name').value); } catch {}
+  $('checkout').disabled = true;
+  try {
+    const r = await fetch('/api/checkout', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+      city: city(), customer_name: $('name').value, tier: $('tier').value, delivery: $('delivery').value,
+      lines: [...cart].map(([product_id, l]) => ({product_id, qty: l.qty}))})});
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || 'The order could not be placed');
+    msg.className = 'msg ok';
+    msg.textContent = `Order ${body.ref} placed: ${body.lines.length} item(s), due ${fmt(body.due)}. It is in ERPNext now.`;
+    cart.clear(); renderCart(); renderGrid(); loadOrders();
+  } catch (e) {
+    msg.className = 'msg err'; msg.textContent = e.message;
+  } finally { $('checkout').disabled = !cart.size; }
+}
+
+async function loadOrders() {
+  const list = await (await fetch('/api/orders')).json();
+  $('orders').innerHTML = list.length ? list.map(o => `
+    <div class="order">
+      <b>${esc(o.ref)}</b> <span class="badge">${esc(o.tier)}</span>
+      <div class="sub">${esc(o.customer)} &middot; ${esc(o.city)} &middot; ${fmt(o.placed_at)}</div>
+      <div>${o.lines.map(l => `${l.qty} &times; ${esc(l.name)} <span class="sub">(${esc(l.order_id)})</span>`).join('<br>')}</div>
+    </div>`).join('') : '<div class="empty">None yet.</div>';
+}
+
+init();
+</script>
+</body>
+</html>
